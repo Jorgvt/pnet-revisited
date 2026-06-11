@@ -1,0 +1,296 @@
+import os
+import sys
+import jax
+from jax import random, numpy as jnp
+import flax
+from flax.core import freeze, unfreeze
+from flax.training import orbax_utils
+from flax import struct
+import optax
+import orbax.checkpoint
+import numpy as np
+from ml_collections import config_flags, ConfigDict
+from clu import metrics
+
+# Local imports
+from pnet_revisited.model import Model, ModelCls
+from pnet_revisited.initialization import init_model
+from paramperceptnet.constraints import clip_layer, clip_param
+from paramperceptnet.training import TrainState
+
+# -----------------------------------------------------------------------------
+# Configuration Setup
+# -----------------------------------------------------------------------------
+default_config = ConfigDict({
+    "BATCH_SIZE": 64,
+    "EPOCHS": 50,
+    "LEARNING_RATE": 1e-3,
+    "SEED": 42,
+    "GAP": True, # Global Average Pooling before the classification head
+    "FREEZE_FEATURE_EXTRACTOR": True, # If True, only train the Dense layer
+})
+
+_CONFIG = config_flags.DEFINE_config_file("config", default=None)
+from absl import flags
+flags.FLAGS(sys.argv)
+config = _CONFIG.value if _CONFIG.value is not None else default_config
+print("Using configuration:")
+print(config)
+
+# -----------------------------------------------------------------------------
+# Dataset Loading and Preprocessing using HF Datasets
+# -----------------------------------------------------------------------------
+from datasets import load_dataset
+
+print("Loading dataset jonathanli/imagenette2-320-split from Hugging Face...")
+train_ds = load_dataset("jonathanli/imagenette2-320-split", split="train")
+val_ds = load_dataset("jonathanli/imagenette2-320-split", split="test")
+
+# Preprocessing transform
+def preprocess(batch):
+    target_size = (224, 224)
+    # Convert all images to RGB, resize, and normalize to [0.0, 1.0]
+    images = np.array([
+        np.array(img.convert("RGB").resize(target_size), dtype=np.float32) / 255.0 
+        for img in batch['image']
+    ])
+    labels = np.array(batch['label'], dtype=np.int32)
+    return {
+        'image': images,
+        'label': labels
+    }
+
+train_ds = train_ds.with_transform(preprocess)
+val_ds = val_ds.with_transform(preprocess)
+
+def get_epoch_iterator(dataset, batch_size, shuffle=False, seed=None):
+    ds = dataset
+    if shuffle:
+        ds = ds.shuffle(seed=seed)
+    for batch in ds.iter(batch_size=batch_size, drop_last_batch=True):
+        yield batch['image'], batch['label']
+
+# -----------------------------------------------------------------------------
+# Metrics and Custom Train State definition
+# -----------------------------------------------------------------------------
+@struct.dataclass
+class ClassificationMetrics(metrics.Collection):
+    loss: metrics.Average.from_output("loss")
+    accuracy: metrics.Average.from_output("accuracy")
+
+class ClsTrainState(TrainState):
+    metrics: ClassificationMetrics
+
+def create_cls_train_state(module, key, tx, input_shape):
+    variables = module.init(key, jnp.ones(input_shape))
+    state, params = flax.core.pop(variables, "params")
+    return ClsTrainState.create(
+        apply_fn=module.apply,
+        params=params,
+        state=state,
+        tx=tx,
+        metrics=ClassificationMetrics.empty(),
+    )
+
+# -----------------------------------------------------------------------------
+# Model Initialization
+# -----------------------------------------------------------------------------
+tx = optax.adam(config.LEARNING_RATE)
+
+# Create Outer ModelCls train state
+state = create_cls_train_state(
+    ModelCls(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 224, 224, 3)
+)
+
+# Extract and initialize inner feature extractor Model
+params = unfreeze(state.params)
+batch_stats = unfreeze(state.state)
+
+perceptnet_params = params["perceptnet"]
+perceptnet_stats = batch_stats["batch_stats"]["perceptnet"]
+
+# Call original human-like initialization on inner perceptnet
+perceptnet_params, perceptnet_stats = init_model(Model(), perceptnet_params, perceptnet_stats)
+
+params["perceptnet"] = perceptnet_params
+batch_stats["batch_stats"]["perceptnet"] = perceptnet_stats
+
+# Put initialized parameters and state back into train state
+state = state.replace(params=freeze(params), state=freeze(batch_stats))
+
+# Initial parameter clipping for inner model
+state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
+state = state.replace(params=clip_param(state.params, "A", a_min=0))
+
+# -----------------------------------------------------------------------------
+# Trainable Tree and Optimizer Setup
+# -----------------------------------------------------------------------------
+def check_trainable(path):
+    if config.FREEZE_FEATURE_EXTRACTOR:
+        # If feature extractor is frozen, only train the Dense classification head
+        if "perceptnet" in path:
+            return True # True means non-trainable (frozen)
+        return False # False means trainable (dense head)
+    
+    # Otherwise, fallback to the standard inner model constraints
+    if "GDNGamma_0" in path:
+        return True
+    if "CenterSurroundLogSigmaK_0" in path:
+        return True
+    if "GDNGaussian_0" in path:
+        return True
+    if "Gabor" in "".join(path):
+        return True
+    if "GDNSpatioChromaFreqOrient_0" not in path:
+        return True
+    return False
+
+trainable_tree = freeze(
+    flax.traverse_util.path_aware_map(
+        lambda path, v: "non_trainable" if check_trainable(path) else "trainable",
+        state.params,
+    )
+)
+
+print("Trainable parameters tree:")
+for k, v in flax.traverse_util.flatten_dict(trainable_tree).items():
+    print(f"  {'/'.join(k)}: {v}")
+
+optimizers = {
+    "trainable": optax.adam(learning_rate=config.LEARNING_RATE),
+    "non_trainable": optax.set_to_zero(),
+}
+tx_multi = optax.multi_transform(optimizers, trainable_tree)
+
+# Update state with multi-transform optimizer and its initialized state
+state = state.replace(tx=tx_multi, opt_state=tx_multi.init(state.params))
+
+# Calculate parameter counts
+param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+trainable_param_count = sum(
+    [
+        w.size if t == "trainable" else 0
+        for w, t in zip(
+            jax.tree_util.tree_leaves(state.params),
+            jax.tree_util.tree_leaves(trainable_tree),
+        )
+    ]
+)
+print(f"Total parameters: {param_count}, Trainable parameters: {trainable_param_count}")
+
+# -----------------------------------------------------------------------------
+# Classification Training and Evaluation steps
+# -----------------------------------------------------------------------------
+@jax.jit
+def train_step_cls(state, batch):
+    images, labels = batch
+    
+    def loss_fn(params):
+        logits, updated_state = state.apply_fn(
+            {"params": params, **state.state},
+            images,
+            mutable=list(state.state.keys()),
+            train=True,
+        )
+        one_hot = jax.nn.one_hot(labels, 10)
+        loss = -jnp.mean(jnp.sum(one_hot * jax.nn.log_softmax(logits), axis=-1))
+        preds = jnp.argmax(logits, axis=-1)
+        acc = jnp.mean(preds == labels)
+        return loss, (updated_state, acc)
+
+    (loss, (updated_state, acc)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+    state = state.apply_gradients(grads=grads)
+    
+    metrics_updates = state.metrics.single_from_model_output(loss=loss, accuracy=acc)
+    metrics = state.metrics.merge(metrics_updates)
+    state = state.replace(metrics=metrics, state=updated_state)
+    return state
+
+@jax.jit
+def eval_step_cls(state, batch):
+    images, labels = batch
+    
+    logits = state.apply_fn(
+        {"params": state.params, **state.state},
+        images,
+        train=False,
+    )
+    one_hot = jax.nn.one_hot(labels, 10)
+    loss = -jnp.mean(jnp.sum(one_hot * jax.nn.log_softmax(logits), axis=-1))
+    preds = jnp.argmax(logits, axis=-1)
+    acc = jnp.mean(preds == labels)
+    
+    metrics_updates = state.metrics.single_from_model_output(loss=loss, accuracy=acc)
+    metrics = state.metrics.merge(metrics_updates)
+    state = state.replace(metrics=metrics)
+    return state
+
+# -----------------------------------------------------------------------------
+# Checkpoint setup
+# -----------------------------------------------------------------------------
+checkpoint_dir = "./checkpoints_cls"
+os.makedirs(checkpoint_dir, exist_ok=True)
+
+orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+save_args = orbax_utils.save_args_from_target(state)
+orbax_checkpointer.save(
+    os.path.join(checkpoint_dir, "model-0"), state, save_args=save_args, force=True
+)
+
+metrics_history = {
+    "train_loss": [],
+    "train_accuracy": [],
+    "val_loss": [],
+    "val_accuracy": [],
+}
+
+# -----------------------------------------------------------------------------
+# Main Training Loop
+# -----------------------------------------------------------------------------
+print("Starting classification training loop...")
+for epoch in range(config.EPOCHS):
+    ## Training
+    for batch in get_epoch_iterator(train_ds, config.BATCH_SIZE, shuffle=True, seed=config.SEED + epoch):
+        state = train_step_cls(state, batch)
+        # Apply parameter clipping to feature extractor if it is trainable
+        if not config.FREEZE_FEATURE_EXTRACTOR:
+            state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
+            state = state.replace(params=clip_param(state.params, "A", a_min=0))
+            state = state.replace(params=clip_param(state.params, "K", a_min=1 + 1e-5))
+
+    ## Compute train metrics
+    computed_train_metrics = state.metrics.compute()
+    metrics_history["train_loss"].append(computed_train_metrics["loss"])
+    metrics_history["train_accuracy"].append(computed_train_metrics["accuracy"])
+    state = state.replace(metrics=ClassificationMetrics.empty())
+
+    ## Evaluation
+    for batch in get_epoch_iterator(val_ds, config.BATCH_SIZE, shuffle=False):
+        state = eval_step_cls(state, batch)
+
+    ## Compute validation metrics
+    computed_val_metrics = state.metrics.compute()
+    metrics_history["val_loss"].append(computed_val_metrics["loss"])
+    metrics_history["val_accuracy"].append(computed_val_metrics["accuracy"])
+    state = state.replace(metrics=ClassificationMetrics.empty())
+
+    ## Checkpointing (best validation accuracy)
+    if metrics_history["val_accuracy"][-1] >= max(metrics_history["val_accuracy"]):
+        orbax_checkpointer.save(
+            os.path.join(checkpoint_dir, "model-best"),
+            state,
+            save_args=save_args,
+            force=True,
+        )
+
+    print(
+        f'Epoch {epoch + 1}/{config.EPOCHS} -> '
+        f'[Train] Loss: {metrics_history["train_loss"][-1]:.4f}, Acc: {metrics_history["train_accuracy"][-1]*100:.2f}% | '
+        f'[Val] Loss: {metrics_history["val_loss"][-1]:.4f}, Acc: {metrics_history["val_accuracy"][-1]*100:.2f}%'
+    )
+
+# Save final model
+orbax_checkpointer.save(
+    os.path.join(checkpoint_dir, "model-final"), state, save_args=save_args, force=True
+)
+print("Classification training completed successfully! Checkpoints saved to:", checkpoint_dir)

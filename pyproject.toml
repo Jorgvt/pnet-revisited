@@ -1,0 +1,26 @@
+[project]
+name = "pnet-revisited"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Jorgvt", email = "vila_tronik@hotmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=5.0.0",
+    "flax>=0.10.7",
+    "jax>=0.6.2",
+    "paramperceptnet",
+    "perceptualtests",
+    "pillow>=12.2.0",
+    "wandb>=0.27.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.25,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+paramperceptnet = { git = "https://github.com/jorgvt/paramperceptnet.git" }
+perceptualtests = { git = "https://github.com/Jorgvt/PerceptualTests.git" }

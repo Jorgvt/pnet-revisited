@@ -1,0 +1,83 @@
+_allow_dotted_keys:
+    value: false
+_convert_dict:
+    value: true
+_fields:
+    value:
+        A_GABOR: true
+        A_GDNSPATIOFREQORIENT: true
+        BATCH_SIZE: 64
+        CS_KERNEL_SIZE: 21
+        END_LR: 0.005
+        EPOCHS: 1
+        GABOR_KERNEL_SIZE: 31
+        GDN_CLIPPING: true
+        GDNFINAL_KERNEL_SIZE: 21
+        GDNGAUSSIAN_KERNEL_SIZE: 11
+        INIT_GABOR: true
+        INIT_JH: true
+        INITIAL_LR: 0.01
+        LEARNING_RATE: 0.003
+        NORMALIZE_ENERGY: true
+        NORMALIZE_PROB: false
+        PEAK_LR: 0.04
+        SEED: 42
+        TRAIN_CS: false
+        TRAIN_GABOR: false
+        TRAIN_GDNCOLOR: false
+        TRAIN_GDNGAMMA: false
+        TRAIN_GDNGAUSSIAN: false
+        TRAIN_JH: false
+        TRAIN_ONLY_LAST_GDN: true
+        USE_BIAS: false
+        USE_GAMMA: true
+        WARMUP_EPOCHS: 15
+        ZERO_MEAN: true
+_locked:
+    value: true
+_sort_keys:
+    value: true
+_type_safe:
+    value: true
+_wandb:
+    value:
+        cli_version: 0.27.2
+        e:
+            vpg65eo9wbyaphbfr0k3pd1b48gyf4na:
+                args:
+                    - --config=config.py
+                    - --config.EPOCHS=1
+                codePath: training.py
+                codePathLocal: training.py
+                email: vila_tronik@hotmail.com
+                executable: /Users/jorgvt/Developer/pnet-revisited/.venv/bin/python3
+                host: MacBook-Pro-de-Jorge.local
+                os: macOS-15.2-arm64-arm-64bit
+                program: /Users/jorgvt/Developer/pnet-revisited/training.py
+                python: CPython 3.10.19
+                root: /Users/jorgvt/Developer/pnet-revisited
+                startedAt: "2026-06-11T10:26:01.842353Z"
+                writerId: vpg65eo9wbyaphbfr0k3pd1b48gyf4na
+        m: []
+        python_version: 3.10.19
+        t:
+            "1":
+                - 12
+                - 45
+                - 49
+                - 51
+            "2":
+                - 12
+                - 45
+                - 49
+                - 51
+            "3":
+                - 13
+                - 16
+                - 62
+            "4": 3.10.19
+            "5": 0.27.2
+            "8":
+                - 2
+            "12": 0.27.2
+            "13": darwin-arm64
