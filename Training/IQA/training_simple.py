@@ -95,40 +95,15 @@ state = state.replace(params=clip_param(state.params, "A", a_min=0))
 # -----------------------------------------------------------------------------
 # Trainable Tree and Optimizer Setup
 # -----------------------------------------------------------------------------
-def check_trainable(path):
-    if hasattr(config, "TRAIN_ONLY_B") and config.TRAIN_ONLY_B:
-        if "B" in path:
-            return False
-        else:
-            return True
-    if "GDNGamma_0" in path:
-        if not config.TRAIN_GDNGAMMA:
-            return True
-    if "Color" in path:
-        if not config.TRAIN_JH:
-            return True
-    if "GDN_0" in path:
-        if not config.TRAIN_GDNCOLOR:
-            return True
-    if "CenterSurroundLogSigmaK_0" in path:
-        if not config.TRAIN_CS:
-            return True
-    if "GDNGaussian_0" in path:
-        if not config.TRAIN_GDNGAUSSIAN:
-            return True
-    if "Gabor" in "".join(path):
-        if not config.TRAIN_GABOR:
-            return True
-    if not config.A_GDNSPATIOFREQORIENT:
-        if ("GDNSpatioChromaFreqOrient_0" in path) and ("A" in path):
-            return True
-    if "GDNSpatioChromaFreqOrient_0" not in path and config.TRAIN_ONLY_LAST_GDN:
-        return True
-    return False
+def is_param_trainable(path):
+    path_str = "/".join(path)
+    if hasattr(config, "FREEZE_PATTERNS") and config.FREEZE_PATTERNS:
+        return not any(pattern in path_str for pattern in config.FREEZE_PATTERNS)
+    return True
 
 trainable_tree = freeze(
     flax.traverse_util.path_aware_map(
-        lambda path, v: "non_trainable" if check_trainable(path) else "trainable",
+        lambda path, v: "trainable" if is_param_trainable(path) else "non_trainable",
         state.params,
     )
 )

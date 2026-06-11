@@ -28,33 +28,33 @@ This will automatically configure a virtual environment with the necessary JAX, 
 To start training using the default `param_config` values from `paramperceptnet`:
 
 ```bash
-uv run training.py
+uv run Training/IQA/training.py
 ```
 
 ### 2. Training with Custom Configurations
-To define custom settings (e.g. override hyperparameters or freeze/unfreeze specific layers), you can use the local `config.py` file:
+To define custom settings (e.g. override hyperparameters or freeze/unfreeze specific layers), you can use the task-specific config file:
 
 ```bash
-uv run training.py --config=config.py
+uv run Training/IQA/training.py --config=Training/IQA/config.py
 ```
 
 You can also override parameters directly from the command line:
 
 ```bash
-uv run training.py --config=config.py --config.EPOCHS=100 --config.BATCH_SIZE=32
+uv run Training/IQA/training.py --config=Training/IQA/config.py --config.EPOCHS=100 --config.BATCH_SIZE=32
 ```
 
 ### 3. Training Locally Without Weights & Biases (Simple Mode)
 If you prefer a lightweight, self-contained training execution that runs locally and does not require `wandb` logging, you can run the simplified training script instead:
 
 ```bash
-uv run training_simple.py
+uv run Training/IQA/training_simple.py
 ```
 
 Or with custom config overrides:
 
 ```bash
-uv run training_simple.py --config=config.py --config.EPOCHS=5
+uv run Training/IQA/training_simple.py --config=Training/IQA/config.py --config.EPOCHS=5
 ```
 
 All checkpoints (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints/` directory.
@@ -63,13 +63,13 @@ All checkpoints (`model-0`, `model-best`, and `model-final`) will be saved local
 To test training the model on a classification task using `ModelCls` (attaching a dense layer after our model acting as a classifier) on the Imagenette dataset:
 
 ```bash
-uv run training_classification.py
+uv run Training/Classification/training_classification.py
 ```
 
 By default, the script freezes the feature extractor and only trains the dense classifier head using Global Average Pooling. You can customize these behaviors (such as fine-tuning the full model or changing configuration) by passing custom flags or overrides:
 
 ```bash
-uv run training_classification.py --config=config.py --config.FREEZE_FEATURE_EXTRACTOR=False --config.LEARNING_RATE=1e-4
+uv run Training/Classification/training_classification.py --config=Training/Classification/config.py --config.FREEZE_PATTERNS="[]" --config.LEARNING_RATE=1e-4
 ```
 
 Checkpoints for the classification task (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints_cls/` directory.
