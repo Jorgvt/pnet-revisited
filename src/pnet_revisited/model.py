@@ -912,3 +912,39 @@ class ModelCls(nn.Module):
         outputs = nn.Dense(features=10)(outputs)
         return outputs
 
+class SimpleDecoder(nn.Module):
+    @nn.compact
+    def __call__(self, x):
+        # First upsampling by 2: (b, h/4, w/4, 130) -> (b, h/2, w/2, 64)
+        x = nn.ConvTranspose(features=64, kernel_size=(4, 4), strides=(2, 2), padding="SAME")(x)
+        x = nn.relu(x)
+        # Second upsampling by 2: (b, h/2, w/2, 64) -> (b, h, w, 32)
+        x = nn.ConvTranspose(features=32, kernel_size=(4, 4), strides=(2, 2), padding="SAME")(x)
+        x = nn.relu(x)
+        # Projection back to RGB: (b, h, w, 32) -> (b, h, w, 3)
+        x = nn.Conv(features=3, kernel_size=(3, 3), padding="SAME")(x)
+        x = nn.sigmoid(x)
+        return x
+
+class ModelDenoising(nn.Module):
+    @nn.compact
+    def __call__(self, inputs, **kwargs):
+        # Encoder: extract perceptual representations
+        features = Model(name="perceptnet")(inputs, **kwargs)
+        
+        # Determine target dimensions for the feature maps before 4x upsampling
+        h, w = inputs.shape[1], inputs.shape[2]
+        h_target = (h + 3) // 4
+        w_target = (w + 3) // 4
+        
+        # Dynamically pad features to match the target dimensions
+        pad_h = h_target - features.shape[1]
+        pad_w = w_target - features.shape[2]
+        features = jnp.pad(features, ((0, 0), (0, pad_h), (0, pad_w), (0, 0)))
+        
+        # Decoder: reconstruct original image
+        reconstruction = SimpleDecoder(name="decoder")(features)
+        
+        # Crop the output back to the original input resolution
+        return reconstruction[:, :h, :w, :]
+

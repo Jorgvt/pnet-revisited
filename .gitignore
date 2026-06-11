@@ -15,3 +15,4 @@ wheels/
 # Local checkpoints
 **/checkpoints/
 **/checkpoints_cls/
+**/checkpoints_denoise/

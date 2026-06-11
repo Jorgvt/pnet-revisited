@@ -139,7 +139,7 @@ print(f"Total parameters: {param_count}, Trainable parameters: {trainable_param_
 # -----------------------------------------------------------------------------
 # Checkpoint setup
 # -----------------------------------------------------------------------------
-checkpoint_dir = "./checkpoints"
+checkpoint_dir = os.path.abspath("./checkpoints")
 os.makedirs(checkpoint_dir, exist_ok=True)
 
 # Setup checkpointer

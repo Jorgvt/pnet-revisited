@@ -99,3 +99,18 @@ uv run Training/visturing/optimize_prop1.py --iterations=10
 ```
 
 All trained parameter checkpoints from these optimization tasks are saved locally within the `Training/visturing/` folder (e.g., `model_pnet_init_prop1.pkl`).
+
+### 7. Training on Image Denoising (Unsupervised Task)
+To test training the model on an unsupervised denoising task using `ModelDenoising` (an encoder-decoder architecture wrapping the perceptnet model as the encoder and a custom convolutional decoder) on the Imagenette dataset:
+
+```bash
+uv run Training/Denoising/training_denoising.py
+```
+
+By default, the script freezes the encoder submodule and only trains the simple decoder. You can customize the training behaviour (such as the noise level or training the full model) by providing configuration overrides:
+
+```bash
+uv run Training/Denoising/training_denoising.py --config=Training/Denoising/config.py --config.NOISE_STD=0.15 --config.FREEZE_PATTERNS="[]"
+```
+
+Checkpoints for the denoising task (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints_denoise/` directory. Note that all checkpoints are saved using resolved absolute paths to satisfy Orbax requirement constraints.

@@ -13,7 +13,7 @@ from ml_collections import config_flags, ConfigDict
 from clu import metrics
 
 # Local imports
-from pnet_revisited.model import Model, ModelCls
+from pnet_revisited.model import Model, ModelDenoising
 from pnet_revisited.initialization import init_model
 from paramperceptnet.constraints import clip_layer, clip_param
 from paramperceptnet.training import TrainState
@@ -26,8 +26,8 @@ default_config = ConfigDict({
     "EPOCHS": 50,
     "LEARNING_RATE": 1e-3,
     "SEED": 42,
-    "GAP": True, # Global Average Pooling before the classification head
-    "FREEZE_FEATURE_EXTRACTOR": True, # If True, only train the Dense layer
+    "NOISE_STD": 0.1,
+    "FREEZE_PATTERNS": ["perceptnet"],
 })
 
 _CONFIG = config_flags.DEFINE_config_file("config", default=None)
@@ -46,18 +46,15 @@ print("Loading dataset jonathanli/imagenette2-320-split from Hugging Face...")
 train_ds = load_dataset("jonathanli/imagenette2-320-split", split="train")
 val_ds = load_dataset("jonathanli/imagenette2-320-split", split="test")
 
-# Preprocessing transform
+# Preprocessing transform (unsupervised denoising, only need images)
 def preprocess(batch):
     target_size = (224, 224)
-    # Convert all images to RGB, resize, and normalize to [0.0, 1.0]
     images = np.array([
         np.array(img.convert("RGB").resize(target_size), dtype=np.float32) / 255.0 
         for img in batch['image']
     ])
-    labels = np.array(batch['label'], dtype=np.int32)
     return {
-        'image': images,
-        'label': labels
+        'image': images
     }
 
 train_ds = train_ds.with_transform(preprocess)
@@ -68,28 +65,27 @@ def get_epoch_iterator(dataset, batch_size, shuffle=False, seed=None):
     if shuffle:
         ds = ds.shuffle(seed=seed)
     for batch in ds.iter(batch_size=batch_size, drop_last_batch=True):
-        yield batch['image'], batch['label']
+        yield batch['image']
 
 # -----------------------------------------------------------------------------
 # Metrics and Custom Train State definition
 # -----------------------------------------------------------------------------
 @struct.dataclass
-class ClassificationMetrics(metrics.Collection):
+class DenoiseMetrics(metrics.Collection):
     loss: metrics.Average.from_output("loss")
-    accuracy: metrics.Average.from_output("accuracy")
 
-class ClsTrainState(TrainState):
-    metrics: ClassificationMetrics
+class DenoiseTrainState(TrainState):
+    metrics: DenoiseMetrics
 
-def create_cls_train_state(module, key, tx, input_shape):
+def create_denoise_train_state(module, key, tx, input_shape):
     variables = module.init(key, jnp.ones(input_shape))
     state, params = flax.core.pop(variables, "params")
-    return ClsTrainState.create(
+    return DenoiseTrainState.create(
         apply_fn=module.apply,
         params=params,
         state=state,
         tx=tx,
-        metrics=ClassificationMetrics.empty(),
+        metrics=DenoiseMetrics.empty(),
     )
 
 # -----------------------------------------------------------------------------
@@ -97,9 +93,9 @@ def create_cls_train_state(module, key, tx, input_shape):
 # -----------------------------------------------------------------------------
 tx = optax.adam(config.LEARNING_RATE)
 
-# Create Outer ModelCls train state
-state = create_cls_train_state(
-    ModelCls(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 224, 224, 3)
+# Create Outer ModelDenoising train state
+state = create_denoise_train_state(
+    ModelDenoising(), random.PRNGKey(config.SEED), tx, input_shape=(1, 224, 224, 3)
 )
 
 # Extract and initialize inner feature extractor Model
@@ -170,48 +166,47 @@ trainable_param_count = sum(
 print(f"Total parameters: {param_count}, Trainable parameters: {trainable_param_count}")
 
 # -----------------------------------------------------------------------------
-# Classification Training and Evaluation steps
+# Denoising Training and Evaluation steps
 # -----------------------------------------------------------------------------
 @jax.jit
-def train_step_cls(state, batch):
-    images, labels = batch
+def train_step_denoise(state, clean_images, key):
+    # Generate noisy inputs dynamically on GPU
+    noise_key, next_key = jax.random.split(key)
+    noise = jax.random.normal(noise_key, shape=clean_images.shape) * config.NOISE_STD
+    noisy_images = jnp.clip(clean_images + noise, 0.0, 1.0)
     
     def loss_fn(params):
-        logits, updated_state = state.apply_fn(
+        reconstructed, updated_state = state.apply_fn(
             {"params": params, **state.state},
-            images,
+            noisy_images,
             mutable=list(state.state.keys()),
             train=True,
         )
-        one_hot = jax.nn.one_hot(labels, 10)
-        loss = -jnp.mean(jnp.sum(one_hot * jax.nn.log_softmax(logits), axis=-1))
-        preds = jnp.argmax(logits, axis=-1)
-        acc = jnp.mean(preds == labels)
-        return loss, (updated_state, acc)
+        loss = jnp.mean((reconstructed - clean_images) ** 2)
+        return loss, updated_state
 
-    (loss, (updated_state, acc)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+    (loss, updated_state), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
     state = state.apply_gradients(grads=grads)
     
-    metrics_updates = state.metrics.single_from_model_output(loss=loss, accuracy=acc)
+    metrics_updates = state.metrics.single_from_model_output(loss=loss)
     metrics = state.metrics.merge(metrics_updates)
     state = state.replace(metrics=metrics, state=updated_state)
-    return state
+    return state, next_key
 
 @jax.jit
-def eval_step_cls(state, batch):
-    images, labels = batch
+def eval_step_denoise(state, clean_images, key):
+    # Generate noisy inputs dynamically
+    noise = jax.random.normal(key, shape=clean_images.shape) * config.NOISE_STD
+    noisy_images = jnp.clip(clean_images + noise, 0.0, 1.0)
     
-    logits = state.apply_fn(
+    reconstructed = state.apply_fn(
         {"params": state.params, **state.state},
-        images,
+        noisy_images,
         train=False,
     )
-    one_hot = jax.nn.one_hot(labels, 10)
-    loss = -jnp.mean(jnp.sum(one_hot * jax.nn.log_softmax(logits), axis=-1))
-    preds = jnp.argmax(logits, axis=-1)
-    acc = jnp.mean(preds == labels)
+    loss = jnp.mean((reconstructed - clean_images) ** 2)
     
-    metrics_updates = state.metrics.single_from_model_output(loss=loss, accuracy=acc)
+    metrics_updates = state.metrics.single_from_model_output(loss=loss)
     metrics = state.metrics.merge(metrics_updates)
     state = state.replace(metrics=metrics)
     return state
@@ -219,7 +214,7 @@ def eval_step_cls(state, batch):
 # -----------------------------------------------------------------------------
 # Checkpoint setup
 # -----------------------------------------------------------------------------
-checkpoint_dir = os.path.abspath("./checkpoints_cls")
+checkpoint_dir = os.path.abspath("./checkpoints_denoise")
 os.makedirs(checkpoint_dir, exist_ok=True)
 
 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
@@ -230,19 +225,24 @@ orbax_checkpointer.save(
 
 metrics_history = {
     "train_loss": [],
-    "train_accuracy": [],
     "val_loss": [],
-    "val_accuracy": [],
 }
 
 # -----------------------------------------------------------------------------
 # Main Training Loop
 # -----------------------------------------------------------------------------
-print("Starting classification training loop...")
+rng_key = jax.random.PRNGKey(config.SEED)
+print("Starting denoising training loop...")
 for epoch in range(config.EPOCHS):
+    # Split key for epoch-specific random noise generation
+    epoch_key, rng_key = jax.random.split(rng_key)
+    
     ## Training
     for batch in get_epoch_iterator(train_ds, config.BATCH_SIZE, shuffle=True, seed=config.SEED + epoch):
-        state = train_step_cls(state, batch)
+        # We need a different key for each step noise generation
+        step_key, epoch_key = jax.random.split(epoch_key)
+        state, epoch_key = train_step_denoise(state, batch, step_key)
+        
         # Apply parameter clipping to feature extractor if it is trainable
         if not hasattr(config, "FREEZE_PATTERNS") or "perceptnet" not in config.FREEZE_PATTERNS:
             state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
@@ -252,21 +252,20 @@ for epoch in range(config.EPOCHS):
     ## Compute train metrics
     computed_train_metrics = state.metrics.compute()
     metrics_history["train_loss"].append(computed_train_metrics["loss"])
-    metrics_history["train_accuracy"].append(computed_train_metrics["accuracy"])
-    state = state.replace(metrics=ClassificationMetrics.empty())
+    state = state.replace(metrics=DenoiseMetrics.empty())
 
     ## Evaluation
     for batch in get_epoch_iterator(val_ds, config.BATCH_SIZE, shuffle=False):
-        state = eval_step_cls(state, batch)
+        val_key, epoch_key = jax.random.split(epoch_key)
+        state = eval_step_denoise(state, batch, val_key)
 
     ## Compute validation metrics
     computed_val_metrics = state.metrics.compute()
     metrics_history["val_loss"].append(computed_val_metrics["loss"])
-    metrics_history["val_accuracy"].append(computed_val_metrics["accuracy"])
-    state = state.replace(metrics=ClassificationMetrics.empty())
+    state = state.replace(metrics=DenoiseMetrics.empty())
 
-    ## Checkpointing (best validation accuracy)
-    if metrics_history["val_accuracy"][-1] >= max(metrics_history["val_accuracy"]):
+    ## Checkpointing (best validation loss)
+    if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
         orbax_checkpointer.save(
             os.path.join(checkpoint_dir, "model-best"),
             state,
@@ -276,12 +275,12 @@ for epoch in range(config.EPOCHS):
 
     print(
         f'Epoch {epoch + 1}/{config.EPOCHS} -> '
-        f'[Train] Loss: {metrics_history["train_loss"][-1]:.4f}, Acc: {metrics_history["train_accuracy"][-1]*100:.2f}% | '
-        f'[Val] Loss: {metrics_history["val_loss"][-1]:.4f}, Acc: {metrics_history["val_accuracy"][-1]*100:.2f}%'
+        f'[Train] MSE Loss: {metrics_history["train_loss"][-1]:.6f} | '
+        f'[Val] MSE Loss: {metrics_history["val_loss"][-1]:.6f}'
     )
 
 # Save final model
 orbax_checkpointer.save(
     os.path.join(checkpoint_dir, "model-final"), state, save_args=save_args, force=True
 )
-print("Classification training completed successfully! Checkpoints saved to:", checkpoint_dir)
+print("Denoising training completed successfully! Checkpoints saved to:", checkpoint_dir)

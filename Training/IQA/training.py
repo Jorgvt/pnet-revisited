@@ -182,10 +182,11 @@ def filter_extra(extra):
     return freeze(extra)
 
 # Setup checkpointer
+checkpoint_dir = os.path.abspath(wandb.run.dir)
 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
 save_args = orbax_utils.save_args_from_target(state)
 orbax_checkpointer.save(
-    os.path.join(wandb.run.dir, "model-0"), state, save_args=save_args, force=True
+    os.path.join(checkpoint_dir, "model-0"), state, save_args=save_args, force=True
 )
 
 metrics_history = {
@@ -233,7 +234,7 @@ for epoch in range(config.EPOCHS):
     ## Checkpointing
     if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
         orbax_checkpointer.save(
-            os.path.join(wandb.run.dir, "model-best"),
+            os.path.join(checkpoint_dir, "model-best"),
             state,
             save_args=save_args,
             force=True,
@@ -266,6 +267,6 @@ for epoch in range(config.EPOCHS):
 
 # Save final model
 orbax_checkpointer.save(
-    os.path.join(wandb.run.dir, "model-final"), state, save_args=save_args, force=True
+    os.path.join(checkpoint_dir, "model-final"), state, save_args=save_args, force=True
 )
 wandb.finish()
