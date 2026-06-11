@@ -73,3 +73,29 @@ uv run Training/Classification/training_classification.py --config=Training/Clas
 ```
 
 Checkpoints for the classification task (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints_cls/` directory.
+
+### 5. Evaluating Visturing Properties
+The project includes a suite for evaluating model predictions against human visual psychophysical properties (e.g., spectral sensitivities, noise masking, contrast thresholds). These scripts are located in `Evaluate/visturing/`.
+
+To evaluate all properties together and generate an evaluation summary table:
+
+```bash
+uv run Evaluate/visturing/all.py
+```
+
+To run individual property evaluations (e.g., spectral sensitivity):
+
+```bash
+uv run Evaluate/visturing/prop1.py
+```
+
+### 6. Optimizing Model parameters on Visturing Properties
+You can also optimize/fine-tune the model parameters directly to align model representations with ground truth human visual behavior on specific properties. These scripts are located in `Training/visturing/`.
+
+To optimize parameters on a specific property (e.g., Spectral Sensitivity):
+
+```bash
+uv run Training/visturing/optimize_prop1.py --iterations=10
+```
+
+All trained parameter checkpoints from these optimization tasks are saved locally within the `Training/visturing/` folder (e.g., `model_pnet_init_prop1.pkl`).
