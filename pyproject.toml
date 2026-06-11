@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "datasets>=5.0.0",
     "flax>=0.10.7",
-    "jax>=0.6.2",
+    "jax>=0.6.2; sys_platform != 'linux'",
+    "jax[cuda12]>=0.6.2; sys_platform == 'linux'",
     "paramperceptnet",
     "perceptualtests",
     "pillow>=12.2.0",
