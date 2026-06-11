@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Weights & Biases
+wandb/
+
+# Local checkpoints
+checkpoints/
+checkpoints_cls/
