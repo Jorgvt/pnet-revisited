@@ -10,8 +10,8 @@ wheels/
 .venv
 
 # Weights & Biases
-wandb/
+**/wandb/
 
 # Local checkpoints
-checkpoints/
-checkpoints_cls/
+**/checkpoints/
+**/checkpoints_cls/
