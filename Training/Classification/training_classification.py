@@ -21,19 +21,11 @@ from paramperceptnet.training import TrainState
 # -----------------------------------------------------------------------------
 # Configuration Setup
 # -----------------------------------------------------------------------------
-default_config = ConfigDict({
-    "BATCH_SIZE": 64,
-    "EPOCHS": 50,
-    "LEARNING_RATE": 1e-3,
-    "SEED": 42,
-    "GAP": True, # Global Average Pooling before the classification head
-    "FREEZE_FEATURE_EXTRACTOR": True, # If True, only train the Dense layer
-})
-
-_CONFIG = config_flags.DEFINE_config_file("config", default=None)
+# Config flags
+_CONFIG = config_flags.DEFINE_config_file("config", default="Training/Classification/config.py")
 from absl import flags
 flags.FLAGS(sys.argv)
-config = _CONFIG.value if _CONFIG.value is not None else default_config
+config = _CONFIG.value
 print("Using configuration:")
 print(config)
 

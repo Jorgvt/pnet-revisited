@@ -8,20 +8,19 @@ from flax.training import orbax_utils
 import optax
 import orbax.checkpoint
 import numpy as np
-from ml_collections import config_flags
+from ml_collections import config_flags, ConfigDict
 
 # Local imports
 from pnet_revisited.model import Model
 from pnet_revisited.initialization import init_model
 from paramperceptnet.constraints import clip_layer, clip_param
 from paramperceptnet.training import create_train_state, train_step, compute_metrics
-from paramperceptnet.configs import param_config as default_config
 
 # Config flags
-_CONFIG = config_flags.DEFINE_config_file("config", default=None)
+_CONFIG = config_flags.DEFINE_config_file("config", default="Training/IQA/config.py")
 from absl import flags
 flags.FLAGS(sys.argv)
-config = _CONFIG.value if _CONFIG.value is not None else default_config
+config = _CONFIG.value
 print("Using configuration:")
 print(config)
 
