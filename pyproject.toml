@@ -15,6 +15,7 @@ dependencies = [
     "paramperceptnet",
     "perceptualtests",
     "pillow>=12.2.0",
+    "visturing",
     "wandb>=0.27.2",
 ]
 
@@ -25,3 +26,4 @@ build-backend = "uv_build"
 [tool.uv.sources]
 paramperceptnet = { git = "https://github.com/jorgvt/paramperceptnet.git" }
 perceptualtests = { git = "https://github.com/Jorgvt/PerceptualTests.git" }
+visturing = { git = "https://github.com/jorgvt/visturing.git" }
