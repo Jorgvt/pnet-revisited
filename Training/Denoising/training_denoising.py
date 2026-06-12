@@ -218,9 +218,8 @@ checkpoint_dir = os.path.abspath("./checkpoints_denoise")
 os.makedirs(checkpoint_dir, exist_ok=True)
 
 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-save_args = orbax_utils.save_args_from_target(state)
 orbax_checkpointer.save(
-    os.path.join(checkpoint_dir, "model-0"), state, save_args=save_args, force=True
+    os.path.join(checkpoint_dir, "model-0"), state, save_args=orbax_utils.save_args_from_target(state), force=True
 )
 
 metrics_history = {
@@ -266,6 +265,7 @@ for epoch in range(config.EPOCHS):
 
     ## Checkpointing (best validation loss)
     if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
+        save_args = orbax_utils.save_args_from_target(state)
         orbax_checkpointer.save(
             os.path.join(checkpoint_dir, "model-best"),
             state,
@@ -280,6 +280,7 @@ for epoch in range(config.EPOCHS):
     )
 
 # Save final model
+save_args = orbax_utils.save_args_from_target(state)
 orbax_checkpointer.save(
     os.path.join(checkpoint_dir, "model-final"), state, save_args=save_args, force=True
 )

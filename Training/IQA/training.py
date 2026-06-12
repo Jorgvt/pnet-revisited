@@ -233,6 +233,7 @@ for epoch in range(config.EPOCHS):
 
     ## Checkpointing
     if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
+        save_args = orbax_utils.save_args_from_target(state)
         orbax_checkpointer.save(
             os.path.join(checkpoint_dir, "model-best"),
             state,
@@ -266,6 +267,7 @@ for epoch in range(config.EPOCHS):
     )
 
 # Save final model
+save_args = orbax_utils.save_args_from_target(state)
 orbax_checkpointer.save(
     os.path.join(checkpoint_dir, "model-final"), state, save_args=save_args, force=True
 )
