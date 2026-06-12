@@ -25,23 +25,23 @@ This will automatically configure a virtual environment with the necessary JAX, 
 ## Usage
 
 ### 1. Training with Default Configuration
-To start training using the default `param_config` values from `paramperceptnet`:
+To start training using the default configuration (which automatically loads from its corresponding `config.py` file):
 
 ```bash
 uv run Training/IQA/training.py
 ```
 
-### 2. Training with Custom Configurations
-To define custom settings (e.g. override hyperparameters or freeze/unfreeze specific layers), you can use the task-specific config file:
+### 2. Training with Custom Configurations and CLI Overrides
+You can override specific parameters directly from the command line:
 
 ```bash
-uv run Training/IQA/training.py --config=Training/IQA/config.py
+uv run Training/IQA/training.py --config.EPOCHS=100 --config.BATCH_SIZE=32
 ```
 
-You can also override parameters directly from the command line:
+Or pass a custom configuration file path to load completely different settings:
 
 ```bash
-uv run Training/IQA/training.py --config=Training/IQA/config.py --config.EPOCHS=100 --config.BATCH_SIZE=32
+uv run Training/IQA/training.py --config=/path/to/custom_config.py
 ```
 
 ### 3. Training Locally Without Weights & Biases (Simple Mode)
@@ -54,7 +54,7 @@ uv run Training/IQA/training_simple.py
 Or with custom config overrides:
 
 ```bash
-uv run Training/IQA/training_simple.py --config=Training/IQA/config.py --config.EPOCHS=5
+uv run Training/IQA/training_simple.py --config.EPOCHS=5
 ```
 
 All checkpoints (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints/` directory.
@@ -66,10 +66,10 @@ To test training the model on a classification task using `ModelCls` (attaching 
 uv run Training/Classification/training_classification.py
 ```
 
-By default, the script freezes the feature extractor and only trains the dense classifier head using Global Average Pooling. You can customize these behaviors (such as fine-tuning the full model or changing configuration) by passing custom flags or overrides:
+By default, the script freezes the feature extractor and only trains the dense classifier head using Global Average Pooling. You can customize these behaviors (such as fine-tuning the full model or changing configuration) by passing overrides directly:
 
 ```bash
-uv run Training/Classification/training_classification.py --config=Training/Classification/config.py --config.FREEZE_PATTERNS="[]" --config.LEARNING_RATE=1e-4
+uv run Training/Classification/training_classification.py --config.FREEZE_PATTERNS="[]" --config.LEARNING_RATE=1e-4
 ```
 
 Checkpoints for the classification task (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints_cls/` directory.
@@ -107,10 +107,10 @@ To test training the model on an unsupervised denoising task using `ModelDenoisi
 uv run Training/Denoising/training_denoising.py
 ```
 
-By default, the script freezes the encoder submodule and only trains the simple decoder. You can customize the training behaviour (such as the noise level or training the full model) by providing configuration overrides:
+By default, the script freezes the encoder submodule and only trains the simple decoder. You can customize the training behaviour (such as the noise level or training the full model) by providing configuration overrides directly:
 
 ```bash
-uv run Training/Denoising/training_denoising.py --config=Training/Denoising/config.py --config.NOISE_STD=0.15 --config.FREEZE_PATTERNS="[]"
+uv run Training/Denoising/training_denoising.py --config.NOISE_STD=0.15 --config.FREEZE_PATTERNS="[]"
 ```
 
 Checkpoints for the denoising task (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints_denoise/` directory. Note that all checkpoints are saved using resolved absolute paths to satisfy Orbax requirement constraints.

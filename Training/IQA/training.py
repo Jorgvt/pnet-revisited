@@ -18,7 +18,8 @@ from paramperceptnet.constraints import clip_layer, clip_param
 from paramperceptnet.training import create_train_state, train_step, compute_metrics
 
 # Config flags
-_CONFIG = config_flags.DEFINE_config_file("config", default="Training/IQA/config.py")
+config_file_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "config.py"))
+_CONFIG = config_flags.DEFINE_config_file("config", default=config_file_path)
 from absl import flags
 flags.FLAGS(sys.argv)
 config = _CONFIG.value
