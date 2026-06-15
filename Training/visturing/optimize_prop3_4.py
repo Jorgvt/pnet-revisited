@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=None, help="Batch size for evaluation")
     parser.add_argument("--iterations", type=int, default=10, help="Number of training iterations")
     parser.add_argument("--weighted", action="store_true", help="Optimize weighted correlation instead of non-weighted")
+    parser.add_argument("--learning_rate", "--lr", type=float, default=1e-4, help="Learning rate for optimization")
     args = parser.parse_args()
 
     print(f"Starting JAX PerceptNet (initialized from scratch) optimization experiment on Prop. 3 & 4 (CSF) using {'WEIGHTED' if args.weighted else 'NON-WEIGHTED'} correlation...")
@@ -34,7 +35,7 @@ def main():
     print("Precalculated filters populated in state!")
 
     # Initialize Optax optimizer (Adam)
-    tx = optax.adam(learning_rate=1e-4)
+    tx = optax.adam(learning_rate=args.learning_rate)
     opt_state = tx.init(params)
 
     # Define loss function
