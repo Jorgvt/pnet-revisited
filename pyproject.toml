@@ -23,6 +23,9 @@ dependencies = [
 requires = ["uv_build>=0.9.25,<0.10.0"]
 build-backend = "uv_build"
 
+[project.scripts]
+recalculate-astar = "pnet_revisited.recalculate_a_star:main"
+
 [tool.uv.sources]
 paramperceptnet = { git = "https://github.com/jorgvt/paramperceptnet.git" }
 perceptualtests = { git = "https://github.com/Jorgvt/PerceptualTests.git" }

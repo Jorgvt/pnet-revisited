@@ -114,3 +114,33 @@ uv run Training/Denoising/training_denoising.py --config.NOISE_STD=0.15 --config
 ```
 
 Checkpoints for the denoising task (`model-0`, `model-best`, and `model-final`) will be saved locally inside a `./checkpoints_denoise/` directory. Note that all checkpoints are saved using resolved absolute paths to satisfy Orbax requirement constraints.
+
+### 8. Analyzing Optimized Models
+The project includes tools for analyzing model parameters before and after optimization to visualize how visual filters adapt to fit visual properties. These scripts are located in the `Analysis/` folder.
+
+To compare parameters and plot Center-Surround and Gabor filters for a model optimized on Property 3 & 4:
+
+```bash
+uv run Analysis/analyze_prop3_4.py
+```
+
+This script generates comparative parameter tables in the terminal and saves 2D receptive field comparison plots (`cs_comparison.png` and `gabor_comparison.png`), as well as Contrast Sensitivity Function curve comparison plots (`csf_comparison.png`) directly inside the `Analysis/` directory.
+
+### 9. Recalculating GDN Initialization Parameters (`a_star_gdn` constants)
+When changing the model initialization, the `a_star_gdn_cs` and `a_star_gdn_v1` constants (stored in `src/pnet_revisited/`) must be recalculated. 
+
+To run the recalculation utility, you can use the registered command-line script entrypoint:
+
+```bash
+uv run recalculate-astar
+```
+
+Options:
+- `--num_images`: Number of images to stream from mini-imagenet (default: 64)
+- `--img_size`: Resolution of processed images (default: 256)
+- `--quantile`: Quantile of activation magnitudes to calculate (default: 0.90)
+
+The script automatically handles the sequential dependency:
+1. Recalculates `a_star_gdn_cs` first and saves it to `src/pnet_revisited/a_star_gdn_cs.npy`.
+2. Re-initializes the model, applying the newly calculated `a_star_gdn_cs` to the Center-Surround Divisive Normalization layer.
+3. Evaluates the model up to the Gabor layer to calculate and save the updated `a_star_gdn_v1` to `src/pnet_revisited/a_star_gdn_v1.npy`.

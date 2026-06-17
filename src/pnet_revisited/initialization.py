@@ -42,7 +42,7 @@ def init_cs(params):
     return params_
 
 ## DN - CS
-def init_dn_cs(params, state):
+def init_dn_cs(params, state, a_star_path=None):
     """
     K = cs_q
     a_star = cs_q
@@ -54,8 +54,10 @@ def init_dn_cs(params, state):
     import os
     params_ = params.copy()
     state_ = state.copy()
-    dir_path = os.path.dirname(os.path.abspath(__file__))
-    a_star_cs = jnp.load(os.path.join(dir_path, "a_star_gdn_cs.npy"))
+    if a_star_path is None:
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        a_star_path = os.path.join(dir_path, "a_star_gdn_cs.npy")
+    a_star_cs = jnp.load(a_star_path)
     params_["DN_0"]["GDNGaussian_0"]["GaussianLayerGamma_0"]["gamma"] = (1/(0.1/jnp.sqrt(2)))*jnp.ones_like(params_["DN_0"]["GDNGaussian_0"]["GaussianLayerGamma_0"]["gamma"])
     params_["DN_0"]["GDNGaussian_0"]["GaussianLayerGamma_0"]["bias"] = (a_star_cs.squeeze()**2)/10
     state_["batch_stats"]["DN_0"]["K"] = a_star_cs
@@ -85,7 +87,8 @@ def init_v1(params):
     params_["GaborLayerGammaHumanLike__0"]["gammax_a"] = 1/jnp.array([0.16, 0.08, 0.06, 0.04])
     params_["GaborLayerGammaHumanLike__0"]["gammay_a"] = 1/jnp.array([0.16, 0.08, 0.06, 0.04])
     return params_
-def init_dn_v1(params, state):
+
+def init_dn_v1(params, state, a_star_path=None):
     import os
     params_ = params.copy()
     state_ = state.copy()
@@ -114,8 +117,10 @@ def init_dn_v1(params, state):
                                                                                                             params_["GaborLayerGammaHumanLike__0"]["gammax_d"][0],
                                                                                                          ]))
 
-    dir_path = os.path.dirname(os.path.abspath(__file__))
-    inputs_star = jnp.load(os.path.join(dir_path, "a_star_gdn_v1.npy"))
+    if a_star_path is None:
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        a_star_path = os.path.join(dir_path, "a_star_gdn_v1.npy")
+    inputs_star = jnp.load(a_star_path)
     params_["GDNControl_0"]["GDNSpatioChromaFreqOrient_0"]["bias"] = (inputs_star.squeeze()**2)/1000
     # params_["GDNControl_0"]["GDNSpatioChromaFreqOrient_0"]["bias"] = params_["GDNControl_0"]["GDNSpatioChromaFreqOrient_0"]["bias"]**(1/3)
 
@@ -153,13 +158,15 @@ def init_dn_v1(params, state):
 def init_model(model, # Model class
                params, # Dictionary with the params as generate by instantiating the model
                state, # Dictionary with the state as generate by instantiating the model
+               a_star_cs_path=None,
+               a_star_v1_path=None,
                ):
 
     params = init_dn_gamma(params)
     params["CenterSurroundLogSigmaK_0"] = init_cs(params["CenterSurroundLogSigmaK_0"])
-    params, state = init_dn_cs(params, state)
+    params, state = init_dn_cs(params, state, a_star_path=a_star_cs_path)
     params = init_v1(params)
-    params, state = init_dn_v1(params, state)
+    params, state = init_dn_v1(params, state, a_star_path=a_star_v1_path)
 
     x = jnp.ones((1,128,128,3))
     _, state = model.apply({"params": params, **state}, x, train=True, mutable=list(state.keys()))
