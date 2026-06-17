@@ -61,3 +61,101 @@ def load_state(path):
 
     return state
 
+# -----------------------------------------------------------------------------
+# Memory-Efficient Batch-by-Batch VJP Gradient Utilities
+# -----------------------------------------------------------------------------
+import jax
+import jax.numpy as jnp
+from typing import Sequence
+
+def collect_property_stimuli(prop_module, config, batch_size):
+    """Collects all stimuli and plain/reference images by running evaluate_gen once with a mock function."""
+    all_stimuli = []
+    all_plains = []
+    
+    def collect_fn(a, b):
+        all_stimuli.append(np.asarray(a))
+        all_plains.append(np.asarray(b))
+        return jnp.zeros(len(a))
+        
+    prop_module.evaluate_gen(
+        collect_fn,
+        xp=jnp,
+        batch_size=None,
+        verbose=False,
+        **config
+    )
+    
+    stimuli_flat = np.concatenate(all_stimuli, axis=0)
+    plain_flat = np.concatenate(all_plains, axis=0)
+    slice_sizes = [len(s) for s in all_stimuli]
+    return stimuli_flat, plain_flat, slice_sizes
+
+def make_loss_from_diffs(prop_module, config, slice_sizes, weighted):
+    """Constructs a JAX-traceable loss function that computes correlation from a flat differences array."""
+    def loss_from_diffs(diffs_val):
+        start = 0
+        slices = []
+        for size in slice_sizes:
+            slices.append(diffs_val[start : start + size])
+            start += size
+            
+        call_count = 0
+        def mock_calculate_diffs(a, b):
+            nonlocal call_count
+            res = slices[call_count]
+            call_count += 1
+            return res
+            
+        res = prop_module.evaluate_gen(
+            mock_calculate_diffs,
+            xp=jnp,
+            batch_size=None,
+            verbose=False,
+            **config
+        )
+        corr_key = "weighted" if weighted else "non-weighted"
+        corr = res.correlations[corr_key]["global"]
+        return -corr, corr
+    return loss_from_diffs
+
+def make_memory_efficient_grad_fn(model, state, jit_calculate_diffs, loss_from_diffs, stimuli_flat, plain_flat, batch_size):
+    """Creates a VJP-based gradient function that computes backward pass batch-by-batch to save memory."""
+    jit_loss_grad = jax.jit(jax.value_and_grad(loss_from_diffs, has_aux=True))
+    total_stimuli = len(stimuli_flat)
+    
+    def grad_fn(params_val):
+        # Step A: Forward pass (no gradient history/activations stored)
+        params_sg = jax.lax.stop_gradient(params_val)
+        diffs_list = []
+        for idx in range(0, total_stimuli, batch_size):
+            chunk_a = stimuli_flat[idx : idx + batch_size]
+            chunk_b = plain_flat[idx : idx + batch_size]
+            d = jit_calculate_diffs(params_sg, chunk_a, chunk_b)
+            diffs_list.append(d)
+            
+        diffs = jnp.concatenate(diffs_list, axis=0)
+        
+        # Step B: Compute loss and loss gradient w.r.t differences
+        (loss_val, aux_val), d_loss_d_diffs = jit_loss_grad(diffs)
+        
+        # Step C: Backward pass (compute VJPs batch-by-batch)
+        grads = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), params_val)
+        
+        for idx in range(0, total_stimuli, batch_size):
+            chunk_a = stimuli_flat[idx : idx + batch_size]
+            chunk_b = plain_flat[idx : idx + batch_size]
+            chunk_cotangent = d_loss_d_diffs[idx : idx + batch_size]
+            
+            def batch_forward(p):
+                return jit_calculate_diffs(p, chunk_a, chunk_b)
+                
+            _, vjp_fn = jax.vjp(batch_forward, params_val)
+            grads_chunk = vjp_fn(chunk_cotangent)[0]
+            grads = jax.tree_util.tree_map(lambda g, gc: g + gc, grads, grads_chunk)
+            
+        return (loss_val, aux_val), grads
+        
+    return grad_fn
+
+

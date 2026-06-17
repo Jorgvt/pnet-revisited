@@ -63,7 +63,14 @@ def main():
     tx = optax.adam(learning_rate=args.learning_rate)
     opt_state = tx.init(params)
 
-    # Define loss function
+    from utils import make_memory_efficient_grad_fn
+
+    # 1. Prepare flat inputs
+    ref_img_expanded = np.repeat(ref_img[None, ...], len(imgs), axis=0)
+    stimuli_flat = imgs
+    plain_flat = ref_img_expanded
+
+    # 2. Define JITted batch difference function
     @jax.jit
     def jit_calculate_diffs(params_val, a, b):
         a_j = jnp.asarray(a)
@@ -72,25 +79,25 @@ def main():
         feat_b, _ = model.apply({"params": params_val, **state}, b_j, train=True, mutable=list(state.keys()))
         return jnp.sqrt(jnp.mean((feat_a - feat_b) ** 2, axis=(-3, -2, -1)) + 1e-8)
 
-    def loss_fn(params_val):
-        from visturing.properties.utils import run_batched
-        calculate_diffs = lambda a, b: jit_calculate_diffs(params_val, a, b)
-            
-        ref_img_expanded = np.repeat(ref_img[None, ...], len(imgs), axis=0)
-        diffs = run_batched(
-            calculate_diffs,
-            imgs,
-            ref_img_expanded,
-            batch_size=args.batch_size
-        )
-        
-        # Pearson correlation
-        corr = jax_pearson_correlation(diffs, a_interp_j)
+    # 3. Create the flat loss function
+    def loss_from_diffs(diffs_val):
+        corr = jax_pearson_correlation(diffs_val, a_interp_j)
         loss = -corr
         return loss, corr
 
-    # Compute value and grads
-    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    # 4. Build the memory-efficient grad function
+    grad_fn = make_memory_efficient_grad_fn(
+        model, state, jit_calculate_diffs, loss_from_diffs,
+        stimuli_flat, plain_flat, args.batch_size
+    )
+
+    # 5. Define loss_fn for evaluation steps
+    def loss_fn(params_val):
+        diffs = []
+        for idx in range(0, len(stimuli_flat), args.batch_size):
+            d = jit_calculate_diffs(params_val, stimuli_flat[idx : idx + args.batch_size], plain_flat[idx : idx + args.batch_size])
+            diffs.append(d)
+        return loss_from_diffs(jnp.concatenate(diffs, axis=0))
 
     print("Initial evaluation...")
     loss, init_corr = loss_fn(params)

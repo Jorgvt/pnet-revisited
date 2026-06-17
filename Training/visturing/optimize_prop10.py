@@ -36,6 +36,14 @@ def main():
     tx = optax.adam(learning_rate=args.learning_rate)
     opt_state = tx.init(params)
 
+    from utils import collect_property_stimuli, make_loss_from_diffs, make_memory_efficient_grad_fn
+
+    # 1. Collect all stimuli in a non-JIT context
+    stimuli_flat, plain_flat, slice_sizes = collect_property_stimuli(
+        prop10, default_prop10_config, args.batch_size
+    )
+
+    # 2. Define JITted batch difference function
     @jax.jit
     def jit_calculate_diffs(params_val, a, b):
         a_j = jnp.asarray(a)
@@ -44,23 +52,24 @@ def main():
         feat_b, _ = model.apply({"params": params_val, **state}, b_j, train=True, mutable=list(state.keys()))
         return jnp.sqrt(jnp.mean((feat_a - feat_b) ** 2, axis=(-3, -2, -1)) + 1e-8)
 
+    # 3. Create the flat loss function
+    loss_from_diffs = make_loss_from_diffs(
+        prop10, default_prop10_config, slice_sizes, args.weighted
+    )
+
+    # 4. Build the memory-efficient grad function
+    grad_fn = make_memory_efficient_grad_fn(
+        model, state, jit_calculate_diffs, loss_from_diffs,
+        stimuli_flat, plain_flat, args.batch_size
+    )
+
+    # 5. Define loss_fn for evaluation steps
     def loss_fn(params_val):
-        calculate_diffs = lambda a, b: jit_calculate_diffs(params_val, a, b)
-
-        res = prop10.evaluate_gen(
-            calculate_diffs,
-            xp=jnp,
-            batch_size=args.batch_size,
-            verbose=False,
-            **default_prop10_config
-        )
-        
-        corr_key = "weighted" if args.weighted else "non-weighted"
-        corr = res.correlations[corr_key]["global"]
-        loss = -corr
-        return loss, corr
-
-    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+        diffs = []
+        for idx in range(0, len(stimuli_flat), args.batch_size):
+            d = jit_calculate_diffs(params_val, stimuli_flat[idx : idx + args.batch_size], plain_flat[idx : idx + args.batch_size])
+            diffs.append(d)
+        return loss_from_diffs(jnp.concatenate(diffs, axis=0))
 
     print("Initial evaluation...")
     loss, init_corr = loss_fn(params)
@@ -69,6 +78,8 @@ def main():
     print(f"\nRunning optimization loop ({args.iterations} steps)...")
     for i in range(args.iterations):
         (loss_val, corr_val), grads = grad_fn(params)
+        
+        # Update params
         updates, opt_state = tx.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
         
