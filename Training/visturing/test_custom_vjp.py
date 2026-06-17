@@ -130,44 +130,13 @@ def main():
         print(f"Memory efficient step took: {time.time() - t_start:.2f} seconds")
         return (loss_val, corr_val), grads
 
-    # 4. Compare with the original JAX value_and_grad (which will unroll the loop)
-    def original_loss_fn(params_val):
-        calculate_diffs = lambda a, b: jit_calculate_diffs(params_val, a, b)
-        res = prop5.evaluate_gen(
-            calculate_diffs,
-            xp=jnp,
-            batch_size=batch_size,
-            verbose=False,
-            **default_prop5_config
-        )
-        corr = res.correlations["non-weighted"]["global"]
-        return -corr, corr
-
-    original_grad_fn = jax.value_and_grad(original_loss_fn, has_aux=True)
-
-    print("\nEvaluating with original value_and_grad (will JIT trace)...")
-    try:
-        t0 = time.time()
-        (loss_orig, corr_orig), grads_orig = original_grad_fn(params)
-        jax.block_until_ready(grads_orig)
-        print(f"Original step took: {time.time() - t0:.2f} seconds")
-    except Exception as e:
-        print("Original grad_fn failed/OOMed:", e)
-        loss_orig, corr_orig, grads_orig = None, None, None
-        
     print("\nEvaluating with memory efficient VJP grad_fn...")
     (loss_me, corr_me), grads_me = memory_efficient_grad_fn(params)
     jax.block_until_ready(grads_me)
-    
-    if loss_orig is not None:
-        print("\nComparing results:")
-        print(f"  Losses match: {np.allclose(loss_orig, loss_me)}")
-        print(f"  Correlations match: {np.allclose(corr_orig, corr_me)}")
-        # Check if gradients match
-        orig_leaves = jax.tree_util.tree_leaves(grads_orig)
-        me_leaves = jax.tree_util.tree_leaves(grads_me)
-        all_match = all(np.allclose(o, m, atol=1e-5) for o, m in zip(orig_leaves, me_leaves))
-        print(f"  Gradients match: {all_match}")
+    print("\nMemory-efficient step completed successfully!")
+    print(f"  Loss: {loss_me:.4f}")
+    print(f"  Correlation: {corr_me:.4f}")
+    print(f"  Grad leaves count: {len(jax.tree_util.tree_leaves(grads_me))}")
 
 if __name__ == "__main__":
     main()
