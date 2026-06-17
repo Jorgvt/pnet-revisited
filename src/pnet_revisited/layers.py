@@ -125,6 +125,8 @@ class CenterSurroundLogSigmaK(nn.Module):
         return jnp.meshgrid(jnp.linspace(0,self.kernel_size/self.fs,num=self.kernel_size), jnp.linspace(0,self.kernel_size/self.fs,num=self.kernel_size))
 
 
+
+
 from typing import Sequence, Union
 from fxlayers.layers import GaussianLayerGamma, GDNGaussian
 from jax import lax
@@ -301,26 +303,32 @@ class GaborLayerGammaHumanLike_(nn.Module):
             kernel = precalc_filters.value
         elif is_initialized and train:
             x, y = self.generate_dominion()
+
+            def make_flat_kernel(gammax, gammay, freq, theta, sigma_theta):
+                O = len(theta)
+                S = len(freq)
+                P = len(phase)
+                
+                flat_gammax = jnp.tile(gammax, O * P)
+                flat_gammay = jnp.tile(gammay, O * P)
+                flat_freq = jnp.tile(freq, O * P)
+                flat_theta = jnp.tile(jnp.repeat(theta, S), P)
+                flat_sigma_theta = jnp.tile(jnp.repeat(sigma_theta, S), P)
+                flat_phase = jnp.repeat(phase, O * S)
+                
+                k = jax.vmap(
+                    self.gabor,
+                    in_axes=(None, None, None, None, 0, 0, 0, 0, 0, 0, None, None, None, None),
+                    out_axes=0,
+                )(
+                    x, y, self.xmean, self.ymean,
+                    flat_gammax, flat_gammay, flat_freq, flat_theta, flat_sigma_theta, flat_phase,
+                    1, self.normalize_prob, self.normalize_energy, self.zero_mean,
+                )
+                return rearrange(k, "c_out kx ky -> kx ky c_out")
+
             ## A
-            kernel_a = jax.vmap(
-                self.gabor,
-                in_axes=( None, None, None, None, 0, 0, 0, None, None, None, None, None, None, None,),
-                out_axes=0,
-            )
-            kernel_a = jax.vmap(
-                kernel_a,
-                in_axes=( None, None, None, None, None, None, None, 0, 0, None, None, None, None, None,),
-                out_axes=0,
-            )
-            kernel_a = jax.vmap(
-                kernel_a,
-                in_axes=( None, None, None, None, None, None, None, None, None, 0, None, None, None, None,),
-                out_axes=0,
-            )( x, y, self.xmean, self.ymean, gammax_a, gammay_a, freq_a, theta_a, sigma_theta_a, phase, 1, self.normalize_prob, self.normalize_energy, self.zero_mean,
-            )
-            kernel_a = rearrange(
-                kernel_a, "phases rots fs_sigmas kx ky -> kx ky (phases rots fs_sigmas)"
-            )
+            kernel_a = make_flat_kernel(gammax_a, gammay_a, freq_a, theta_a, sigma_theta_a)
             kernel_a = repeat(
                 kernel_a,
                 "kx ky c_out -> kx ky c_in c_out",
@@ -329,31 +337,14 @@ class GaborLayerGammaHumanLike_(nn.Module):
             )
 
             ## T
-            kernel_t = jax.vmap(
-                self.gabor,
-                in_axes=( None, None, None, None, 0, 0, 0, None, None, None, None, None, None, None,),
-                out_axes=0,
-            )
-            kernel_t = jax.vmap(
-                kernel_t,
-                in_axes=( None, None, None, None, None, None, None, 0, 0, None, None, None, None, None,),
-                out_axes=0,
-            )
-            kernel_t = jax.vmap(
-                kernel_t,
-                in_axes=( None, None, None, None, None, None, None, None, None, 0, None, None, None, None,),
-                out_axes=0,
-            )( x, y, self.xmean, self.ymean, gammax_t, gammay_t, freq_t, theta_t, sigma_theta_t, phase, 1, self.normalize_prob, self.normalize_energy, self.zero_mean,)
-            kernel_t = rearrange(
-                kernel_t, "phases rots fs_sigmas kx ky -> kx ky (phases rots fs_sigmas)"
-            )
+            kernel_t = make_flat_kernel(gammax_t, gammay_t, freq_t, theta_t, sigma_theta_t)
             kernel_t = repeat(
                 kernel_t,
                 "kx ky c_out -> kx ky c_in c_out",
                 c_in=inputs.shape[-1],
                 c_out=kernel_t.shape[-1],
             )
-            ## Generate the f=0 residual
+            ## Generate the f=0 residual
             gabor_t_0 = self.gabor(x, y, self.xmean, self.ymean, 1/0.4, 1/0.4, 0., 0., 0., 0., 1., self.normalize_prob, self.normalize_energy, False)
             gabor_t_0 = repeat(
                 gabor_t_0,
@@ -366,32 +357,14 @@ class GaborLayerGammaHumanLike_(nn.Module):
             )
 
             ## D
-            kernel_d = jax.vmap(
-                self.gabor,
-                in_axes=( None, None, None, None, 0, 0, 0, None, None, None, None, None, None, None,),
-                out_axes=0,
-            )
-            kernel_d = jax.vmap(
-                kernel_d,
-                in_axes=( None, None, None, None, None, None, None, 0, 0, None, None, None, None, None,),
-                out_axes=0,
-            )
-            kernel_d = jax.vmap(
-                kernel_d,
-                in_axes=( None, None, None, None, None, None, None, None, None, 0, None, None, None, None,),
-                out_axes=0,
-            )( x, y, self.xmean, self.ymean, gammax_d, gammay_d, freq_d, theta_d, sigma_theta_d, phase, 1, self.normalize_prob, self.normalize_energy, self.zero_mean,)
-            kernel_d = rearrange(
-                kernel_d, "phases rots fs_sigmas kx ky -> kx ky (phases rots fs_sigmas)"
-            )
+            kernel_d = make_flat_kernel(gammax_d, gammay_d, freq_d, theta_d, sigma_theta_d)
             kernel_d = repeat(
                 kernel_d,
                 "kx ky c_out -> kx ky c_in c_out",
                 c_in=inputs.shape[-1],
                 c_out=kernel_d.shape[-1],
             )
-
-            ## Generate the f=0 residual
+            ## Generate the f=0 residual
             gabor_d_0 = self.gabor(x, y, self.xmean, self.ymean, 1/0.4, 1/0.4, 0., 0., 0., 0., 1., self.normalize_prob, self.normalize_energy, False)
             gabor_d_0 = repeat(
                 gabor_d_0,
@@ -468,38 +441,24 @@ class GaborLayerGammaHumanLike_(nn.Module):
         normalize_energy=False,
         zero_mean=False,
     ):
-        x, y = x - xmean, y - ymean
-        ## Obtain the normalization coeficient
-        gamma_vector = jnp.array([gammax, gammay])
-        # jax.debug.print(f"Freq: {freq}")
-        # jax.debug.print(f"Gamma Vector: {gamma_vector.shape}")
-        # jax.debug.print(f"Gamma Vector: {gamma_vector}")
-        inv_cov_matrix = jnp.diag(gamma_vector) ** 2
-        # jax.debug.print(f"Inv Cov Matrix: {inv_cov_matrix.shape}")
-        # det_cov_matrix = 1/jnp.linalg.det(cov_matrix)
-        # # A_norm = 1/(2*jnp.pi*jnp.sqrt(det_cov_matrix)) if normalize_prob else 1.
-        # A_norm = jnp.where(normalize_prob, 1/(2*jnp.pi*jnp.sqrt(det_cov_matrix)), 1.)
-        A_norm = 1.0
-
-        ## Rotate the sinusoid
-        rotation_matrix = jnp.array(
-            [
-                [jnp.cos(sigma_theta), -jnp.sin(sigma_theta)],
-                [jnp.sin(sigma_theta), jnp.cos(sigma_theta)],
-            ]
-        )
-        # jax.debug.print(f"Rotation Matrix: {rotation_matrix.shape}")
-        rotated_covariance = (
-            rotation_matrix @ inv_cov_matrix @ jnp.transpose(rotation_matrix)
-        )
-        x_r_1 = rotated_covariance[0, 0] * x + rotated_covariance[0, 1] * y
-        y_r_1 = rotated_covariance[1, 0] * x + rotated_covariance[1, 1] * y
-        distance = x * x_r_1 + y * y_r_1
+        x_shifted, y_shifted = x - xmean, y - ymean
+        c = jnp.cos(sigma_theta)
+        s = jnp.sin(sigma_theta)
+        gx = gammax ** 2
+        gy = gammay ** 2
+        
+        r_00 = gx * c**2 + gy * s**2
+        r_01 = (gx - gy) * c * s
+        r_11 = gx * s**2 + gy * c**2
+        
+        x_r_1 = r_00 * x_shifted + r_01 * y_shifted
+        y_r_1 = r_01 * x_shifted + r_11 * y_shifted
+        distance = x_shifted * x_r_1 + y_shifted * y_r_1
+        
         g = (
-            A_norm
-            * jnp.exp(-distance / 2)
+            jnp.exp(-distance / 2)
             * jnp.cos(
-                2 * jnp.pi * freq * (x * jnp.cos(theta) + y * jnp.sin(theta)) + phase
+                2 * jnp.pi * freq * (x_shifted * jnp.cos(theta) + y_shifted * jnp.sin(theta)) + phase
             )
         )
         g = jnp.where(zero_mean, g - g.mean(), g)
@@ -508,38 +467,29 @@ class GaborLayerGammaHumanLike_(nn.Module):
 
     def return_kernel(self, params, c_in=3):
         x, y = self.generate_dominion()
-        sigmax, sigmay = jnp.exp(params["sigmax"]), jnp.exp(params["sigmay"])
+        phase = jnp.array(self.phase)
+        
+        P = len(phase)
+        O = len(params["theta"])
+        S = len(params["freq"])
+        
+        flat_gammax = jnp.tile(params["sigmax"], O * P)
+        flat_gammay = jnp.tile(params["sigmay"], O * P)
+        flat_freq = jnp.tile(params["freq"], O * P)
+        flat_theta = jnp.tile(jnp.repeat(params["theta"], S), P)
+        flat_sigma_theta = jnp.tile(jnp.repeat(params["sigma_theta"], S), P)
+        flat_phase = jnp.repeat(phase, O * S)
+        
         kernel = jax.vmap(
             self.gabor,
-            in_axes=( None, None, None, None, 0, 0, None, None, None, None, None, None, None,),
-            out_axes=0,
-        )
-        kernel = jax.vmap(
-            kernel,
-            in_axes=( None, None, None, None, None, None, 0, None, None, None, None, None, None,),
-            out_axes=0,
-        )
-        kernel = jax.vmap(
-            kernel,
-            in_axes=( None, None, None, None, None, None, None, 0, 0, 0, None, None, None,),
+            in_axes=(None, None, None, None, 0, 0, 0, 0, 0, 0, None, None, None, None),
             out_axes=0,
         )(
-            x,
-            y,
-            self.xmean,
-            self.ymean,
-            params["sigmax"],
-            params["sigmay"],
-            params["freq"],
-            params["theta"],
-            params["sigma_theta"],
-            phase,
-            1,
-            self.normalize_prob,
-            self.normalize_energy,
+            x, y, self.xmean, self.ymean,
+            flat_gammax, flat_gammay, flat_freq, flat_theta, flat_sigma_theta, flat_phase,
+            1, self.normalize_prob, self.normalize_energy, self.zero_mean,
         )
-        # kernel = rearrange(kernel, "(c_in c_out) kx ky -> kx ky c_in c_out", c_in=inputs.shape[-1], c_out=self.features)
-        kernel = rearrange(kernel, "rots fs sigmas kx ky -> kx ky (rots fs sigmas)")
+        kernel = rearrange(kernel, "c_out kx ky -> kx ky c_out")
         kernel = repeat(
             kernel, "kx ky c_out -> kx ky c_in c_out", c_in=c_in, c_out=kernel.shape[-1]
         )

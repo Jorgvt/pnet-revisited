@@ -27,7 +27,7 @@ class Model(nn.Module):
                             # features=3, kernel_size=31, fs=32,
                             # xmean=(31/32)/2,
                             # ymean=(31/32)/2,
-                            features=3, kernel_size=64, fs=128,
+                            features=3, kernel_size=63, fs=128,
                             xmean=(63/128)/2,
                             ymean=(63/128)/2,
                             normalize_prob=False,
