@@ -59,6 +59,7 @@ def main():
         {"params": params, **state},
         x_dummy,
         train=True,
+        update_stats=False,
         mutable=list(state.keys())
     )
 
@@ -100,6 +101,7 @@ def main():
         {"params": params, **state},
         x_dummy,
         train=True,
+        update_stats=False,
         mutable=list(state.keys())
     )
 

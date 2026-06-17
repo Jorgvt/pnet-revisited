@@ -173,5 +173,5 @@ def init_model(model, # Model class
     params, state = init_dn_v1(params, state, a_star_path=a_star_v1_path)
 
     x = jnp.ones((1,128,128,3))
-    _, state = model.apply({"params": params, **state}, x, train=True, mutable=list(state.keys()))
+    _, state = model.apply({"params": params, **state}, x, train=True, update_stats=False, mutable=list(state.keys()))
     return params, state

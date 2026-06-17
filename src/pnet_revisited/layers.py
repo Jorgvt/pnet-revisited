@@ -40,6 +40,7 @@ class CenterSurroundLogSigmaK(nn.Module):
     def __call__(self,
                  inputs,
                  train=False,
+                 **kwargs,
                  ):
         is_initialized = self.has_variable("precalc_filter", "kernel")
         precalc_filters = self.variable("precalc_filter",
@@ -148,6 +149,7 @@ class DN(nn.Module):
     def __call__(self,
                  inputs,
                  train=False,
+                 update_stats=False,
                  **kwargs,
                 ):
         is_initialized_star = self.has_variable("batch_stats", "inputs_star")
@@ -155,11 +157,11 @@ class DN(nn.Module):
         inputs_star = self.variable("batch_stats", "inputs_star", jnp.ones, (1,1,1,inputs.shape[-1]))
         K = self.variable("batch_stats", "K", jnp.ones, (1,1,1,inputs.shape[-1]))
 
-        # if is_initialized_star and train:
-        #     inputs_star.value = (inputs_star.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(1,2), keepdims=True))/2
+        if is_initialized_star and update_stats:
+            inputs_star.value = (inputs_star.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(0,1,2), keepdims=True))/2
 
-        # if is_initialized_K and train:
-        #     K.value = (K.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(1,2), keepdims=True))/2
+        if is_initialized_K and update_stats:
+            K.value = (K.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(0,1,2), keepdims=True))/2
 
         if self.use_noise:
             key = random.PRNGKey(42)
@@ -212,6 +214,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
         train=False,
         return_freq=False,
         return_theta=False,
+        **kwargs,
     ):
         total_scales = jnp.sum(jnp.array(self.n_scales))
         total_orientations = jnp.sum(jnp.array(self.n_orientations))
@@ -569,6 +572,7 @@ class GDNControl(nn.Module):
                  fmean,
                  theta_mean,
                  train=False,
+                 update_stats=False,
                  **kwargs,
                 ):
         is_initialized_star = self.has_variable("batch_stats", "inputs_star")
@@ -576,11 +580,11 @@ class GDNControl(nn.Module):
         inputs_star = self.variable("batch_stats", "inputs_star", jnp.ones, (1,1,1,inputs.shape[-1]))
         K = self.variable("batch_stats", "K", jnp.ones, (1,1,1,inputs.shape[-1]))
     
-        # if is_initialized_star and train:
-        #     inputs_star.value = (inputs_star.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(1,2), keepdims=True))/2
+        if is_initialized_star and update_stats:
+            inputs_star.value = (inputs_star.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(0,1,2), keepdims=True))/2
 
-        # if is_initialized_K and train:
-        #     K.value = (K.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(1,2), keepdims=True))/2
+        if is_initialized_K and update_stats:
+            K.value = (K.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(0,1,2), keepdims=True))/2
 
         H = GDNSpatioChromaFreqOrient(self.kernel_size, fs=self.fs, apply_independently=self.apply_independently, padding="symmetric",
                                       normalize_prob=self.normalize_prob, normalize_energy=self.normalize_energy, normalize_sum=self.normalize_sum,

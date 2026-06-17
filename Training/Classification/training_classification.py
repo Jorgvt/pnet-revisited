@@ -175,6 +175,7 @@ def train_step_cls(state, batch):
             images,
             mutable=list(state.state.keys()),
             train=True,
+            update_stats=True,
         )
         one_hot = jax.nn.one_hot(labels, 10)
         loss = -jnp.mean(jnp.sum(one_hot * jax.nn.log_softmax(logits), axis=-1))

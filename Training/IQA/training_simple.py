@@ -14,7 +14,8 @@ from ml_collections import config_flags, ConfigDict
 from pnet_revisited.model import Model
 from pnet_revisited.initialization import init_model
 from paramperceptnet.constraints import clip_layer, clip_param
-from paramperceptnet.training import create_train_state, train_step, compute_metrics
+from paramperceptnet.training import create_train_state, compute_metrics, pearson_correlation
+from functools import partial
 
 # Config flags
 config_file_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "config.py"))
@@ -153,6 +154,47 @@ metrics_history = {
     "train_loss": [],
     "val_loss": [],
 }
+
+@partial(jax.jit, static_argnums=2)
+def train_step(state, batch, return_grads=False):
+    """Train for a single step with running batch stats updates."""
+    img, img_dist, mos = batch
+
+    def loss_fn(params):
+        ## Forward pass through the model
+        img_pred, updated_state = state.apply_fn(
+            {"params": params, **state.state},
+            img,
+            mutable=list(state.state.keys()),
+            train=True,
+            update_stats=True,
+        )
+        img_dist_pred, updated_state = state.apply_fn(
+            {"params": params, **updated_state},
+            img_dist,
+            mutable=list(updated_state.keys()),
+            train=True,
+            update_stats=True,
+        )
+
+        ## Calculate the distance
+        dist = ((img_pred - img_dist_pred) ** 2).sum(axis=(1, 2, 3)) ** (1 / 2)
+
+        ## Calculate pearson correlation
+        return pearson_correlation(dist, mos), updated_state
+
+    (loss, updated_state), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+        state.params
+    )
+    state = state.apply_gradients(grads=grads)
+    metrics_updates = state.metrics.single_from_model_output(loss=loss)
+    metrics = state.metrics.merge(metrics_updates)
+    state = state.replace(metrics=metrics)
+    state = state.replace(state=updated_state)
+    if return_grads:
+        return state, grads
+    else:
+        return state
 
 # -----------------------------------------------------------------------------
 # Training Loop

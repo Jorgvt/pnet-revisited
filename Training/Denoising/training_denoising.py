@@ -174,6 +174,7 @@ def train_step_denoise(state, clean_images, key):
             noisy_images,
             mutable=list(state.state.keys()),
             train=True,
+            update_stats=True,
         )
         loss = jnp.mean((reconstructed - clean_images) ** 2)
         return loss, updated_state
