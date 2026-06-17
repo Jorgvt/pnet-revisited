@@ -29,6 +29,12 @@ def main():
     parser.add_argument("--output_v1", type=str, default=default_v1, help="Path to save recalculated a_star_gdn_v1.npy")
     args = parser.parse_args()
 
+    # Normalize paths to ensure they have the .npy extension
+    if not args.output_cs.endswith(".npy"):
+        args.output_cs += ".npy"
+    if not args.output_v1.endswith(".npy"):
+        args.output_v1 += ".npy"
+
     print("--- STEP 0: Downloading natural images subset ---")
     imgs = download_imagenet_subset(args.num_images)
     print(f"Loaded image batch with shape: {imgs.shape}")

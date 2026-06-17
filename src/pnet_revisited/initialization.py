@@ -57,6 +57,8 @@ def init_dn_cs(params, state, a_star_path=None):
     if a_star_path is None:
         dir_path = os.path.dirname(os.path.abspath(__file__))
         a_star_path = os.path.join(dir_path, "a_star_gdn_cs.npy")
+    elif not a_star_path.endswith(".npy"):
+        a_star_path += ".npy"
     a_star_cs = jnp.load(a_star_path)
     params_["DN_0"]["GDNGaussian_0"]["GaussianLayerGamma_0"]["gamma"] = (1/(0.1/jnp.sqrt(2)))*jnp.ones_like(params_["DN_0"]["GDNGaussian_0"]["GaussianLayerGamma_0"]["gamma"])
     params_["DN_0"]["GDNGaussian_0"]["GaussianLayerGamma_0"]["bias"] = (a_star_cs.squeeze()**2)/10
@@ -120,6 +122,8 @@ def init_dn_v1(params, state, a_star_path=None):
     if a_star_path is None:
         dir_path = os.path.dirname(os.path.abspath(__file__))
         a_star_path = os.path.join(dir_path, "a_star_gdn_v1.npy")
+    elif not a_star_path.endswith(".npy"):
+        a_star_path += ".npy"
     inputs_star = jnp.load(a_star_path)
     params_["GDNControl_0"]["GDNSpatioChromaFreqOrient_0"]["bias"] = (inputs_star.squeeze()**2)/1000
     # params_["GDNControl_0"]["GDNSpatioChromaFreqOrient_0"]["bias"] = params_["GDNControl_0"]["GDNSpatioChromaFreqOrient_0"]["bias"]**(1/3)
