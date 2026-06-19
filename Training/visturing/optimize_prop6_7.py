@@ -1,3 +1,4 @@
+from paramperceptnet.constraints import clip_layer, clip_param
 import os
 import numpy as np
 import jax
@@ -27,6 +28,9 @@ def main():
     variables = model.init(key, x_init)
     state, params = pop(variables, "params")
     params, state = init_model(model, params, state)
+    params = clip_layer(params, "GDN", a_min=0)
+    params = clip_param(params, "A", a_min=0)
+    params = clip_param(params, "K", a_min=1 + 1e-5)
     print("Model initialized from scratch with custom parameters!")
 
     dummy_x = jnp.zeros((1, 128, 128, 3))
@@ -82,6 +86,9 @@ def main():
         # Update params
         updates, opt_state = tx.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
+        params = clip_layer(params, "GDN", a_min=0)
+        params = clip_param(params, "A", a_min=0)
+        params = clip_param(params, "K", a_min=1 + 1e-5)
         
         print(f"Step {i+1:02d} | Loss: {loss_val:.4f} | Correlation: {corr_val:.4f}")
 
