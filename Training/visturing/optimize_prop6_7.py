@@ -75,13 +75,24 @@ def main():
             diffs.append(d)
         return loss_from_diffs(jnp.concatenate(diffs, axis=0))
 
+    import pickle
+    suffix = "weighted" if args.weighted else "non_weighted"
+    save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_init_prop6_{suffix}.pkl")
+    best_corr = -1.0
+
     print("Initial evaluation...")
     loss, init_corr = loss_fn(params)
+    best_corr = float(init_corr)
     print(f"Initial global {'weighted' if args.weighted else 'non-weighted'} correlation: {init_corr:.4f}")
 
     print(f"\nRunning optimization loop ({args.iterations} steps)...")
     for i in range(args.iterations):
         (loss_val, corr_val), grads = grad_fn(params)
+        
+        # NaN protection
+        if np.isnan(corr_val) or np.isnan(loss_val):
+            print(f"NaN value detected at step {i+1}. Stopping training immediately to protect model parameters.")
+            break
         
         # Update params
         updates, opt_state = tx.update(grads, opt_state, params)
@@ -90,6 +101,14 @@ def main():
         params = clip_param(params, "A", a_min=0)
         params = clip_param(params, "K", a_min=1 + 1e-5)
         
+        # Save checkpoint if correlation improves
+        if corr_val > best_corr:
+            best_corr = float(corr_val)
+            variables_to_save = {"params": params, "state": state}
+            with open(save_path, "wb") as f_save:
+                pickle.dump(variables_to_save, f_save)
+            print(f"Step {i+1:02d} | New best correlation: {best_corr:.4f} | Checkpoint saved!")
+        
         print(f"Step {i+1:02d} | Loss: {loss_val:.4f} | Correlation: {corr_val:.4f}")
 
     print("\nOptimization finished!")
@@ -97,14 +116,8 @@ def main():
     print(f"Final global {'weighted' if args.weighted else 'non-weighted'} correlation: {final_corr:.4f}")
     print(f"Total improvement: {final_corr - init_corr:.4f}")
 
-    print("\nSaving trained model variables...")
-    import pickle
-    suffix = "weighted" if args.weighted else "non_weighted"
-    save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_init_prop6_7_{suffix}.pkl")
-    variables_to_save = {"params": params, "state": state}
-    with open(save_path, "wb") as f_save:
-        pickle.dump(variables_to_save, f_save)
-    print(f"Saved variables to {save_path}")
+    print(f"\nTraining complete! Best correlation achieved: {best_corr:.4f}")
+    print(f"Trained variables saved to {save_path}")
 
 if __name__ == "__main__":
     main()
