@@ -100,12 +100,12 @@ class CenterSurroundLogSigmaK(nn.Module):
         def gaussian(x, y, xmean, ymean, sigma, A=1, normalize_prob=True, normalize_sum=False):
             A_norm = jnp.where(normalize_prob, 1/(2*jnp.pi*sigma**2), 1.)
             g = jnp.exp(-((x-xmean)**2 + (y-ymean)**2)/(2*sigma**2))
-            A_sum = jnp.where(normalize_sum, 1/g.sum(), 1.)
+            A_sum = jnp.where(normalize_sum, 1/(g.sum() + 1e-12), 1.)
             return A*A_norm*A_sum*g
         g1 = gaussian(x, y, xmean, ymean, sigma, 1, normalize_prob, normalize_sum)
         g2 = gaussian(x, y, xmean, ymean, sigma2, 1, normalize_prob, normalize_sum)
         g = g1 - substraction_factor*g2
-        E_norm = jnp.where(normalize_energy, jnp.sqrt(jnp.sum(g**2)), 1.)
+        E_norm = jnp.where(normalize_energy, jnp.sqrt(jnp.sum(g**2) + 1e-12), 1.)
         # A_sum = jnp.where(normalize_sum, g.sum(axis=(0,1), keepdims=True), 1.)
         # g = g/A_sum
         return A*g/E_norm
@@ -462,7 +462,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
             )
         )
         g = jnp.where(zero_mean, g - g.mean(), g)
-        E_norm = jnp.where(normalize_energy, jnp.sqrt(jnp.sum(g**2)), 1.0)
+        E_norm = jnp.where(normalize_energy, jnp.sqrt(jnp.sum(g**2) + 1e-12), 1.0)
         return A * g / E_norm
 
     def return_kernel(self, params, c_in=3):
@@ -743,7 +743,7 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
                 out_axes=1,
             )(fmean, theta_mean, fmean, theta_mean, gamma_f, gamma_theta, cc, cc, H_cc, pp, pp, H_pp, 1, self.normalize_sum)
             kernel = kernel[None, None, :, :]
-            A_sum = jnp.where(self.normalize_sum, 1/kernel.sum(axis=2, keepdims=True), 1.)
+            A_sum = jnp.where(self.normalize_sum, 1/(kernel.sum(axis=2, keepdims=True) + 1e-12), 1.)
             kernel = A_sum*kernel
             precalc_filters.value = kernel
         else:
