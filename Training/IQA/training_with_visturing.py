@@ -317,6 +317,38 @@ for epoch in range(config.EPOCHS):
                 except ValueError:
                     pass
 
+    # Compute mean of individual correlations for both weighted and non-weighted properties
+    non_weighted_corrs = []
+    weighted_corrs = []
+    for p in ["prop1", "prop2", "prop3_4", "prop5", "prop6_7", "prop8", "prop9", "prop10"]:
+        prop_data = results_visturing.get(p)
+        if prop_data is not None and hasattr(prop_data, "correlations"):
+            corrs = prop_data.correlations
+            # Extract non-weighted correlation
+            if "non-weighted" in corrs:
+                c_nw = corrs["non-weighted"].get("global")
+                if c_nw is not None and not np.isnan(c_nw):
+                    non_weighted_corrs.append(float(c_nw))
+            elif "global" in corrs:
+                c_nw = corrs.get("global")
+                if c_nw is not None and not np.isnan(c_nw):
+                    non_weighted_corrs.append(float(c_nw))
+            
+            # Extract weighted correlation
+            if "weighted" in corrs:
+                c_w = corrs["weighted"].get("global")
+                if c_w is not None and not np.isnan(c_w):
+                    weighted_corrs.append(float(c_w))
+            elif "global" in corrs:
+                c_w = corrs.get("global")
+                if c_w is not None and not np.isnan(c_w):
+                    weighted_corrs.append(float(c_w))
+
+    if non_weighted_corrs:
+        visturing_logs["visturing/mean_correlation/non_weighted"] = np.mean(non_weighted_corrs)
+    if weighted_corrs:
+        visturing_logs["visturing/mean_correlation/weighted"] = np.mean(weighted_corrs)
+
     ## Checkpointing
     if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
         save_args = orbax_utils.save_args_from_target(state)
