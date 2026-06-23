@@ -62,6 +62,9 @@ training_prop10_config = {
 
 def load_prop1_stimuli():
     data_path = os.path.join(".", "Experiment_1")
+    if not os.path.exists(data_path):
+        print("Experiment_1 data not found. Downloading...")
+        prop1.download_data(".")
     imgs, ref_img, _ = prop1.load_data(data_path)
     ref_img_expanded = np.repeat(ref_img[None, ...], len(imgs), axis=0)
     slice_sizes = [len(imgs)]
@@ -135,8 +138,17 @@ def main():
     ]
 
     # Precompute a_interp for prop1
-    x_gt, a_gt, _, _ = prop1.load_ground_truth(os.path.join(".", "ground_truth"))
-    _, _, lambdas = prop1.load_data(os.path.join(".", "Experiment_1"))
+    gt_path = os.path.join(".", "ground_truth")
+    if not os.path.exists(gt_path):
+        print("ground_truth directory not found. Downloading...")
+        from visturing.properties.utils import download_ground_truth
+        download_ground_truth(".")
+    data_path = os.path.join(".", "Experiment_1")
+    if not os.path.exists(data_path):
+        print("Experiment_1 data not found. Downloading...")
+        prop1.download_data(".")
+    x_gt, a_gt, _, _ = prop1.load_ground_truth(gt_path)
+    _, _, lambdas = prop1.load_data(data_path)
     a_interp = np.interp(lambdas, x_gt, a_gt)
     prop1_gt = a_interp
 
