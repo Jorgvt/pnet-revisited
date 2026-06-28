@@ -15,7 +15,7 @@ from ml_collections import config_flags, ConfigDict
 from pnet_revisited.model import Model
 from pnet_revisited.initialization import init_model
 from paramperceptnet.constraints import clip_layer, clip_param
-from paramperceptnet.training import create_train_state, compute_metrics, pearson_correlation
+from paramperceptnet.training import create_train_state
 from functools import partial
 
 # Visturing imports
@@ -96,6 +96,7 @@ state = state.replace(params=freeze(params), state=freeze(batch_stats))
 # Initial parameter clipping
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
 state = state.replace(params=clip_param(state.params, "A", a_min=0))
+state = state.replace(params=clip_param(state.params, "K", a_min=1 + 1e-5))
 
 # -----------------------------------------------------------------------------
 # Trainable Tree and Optimizer Setup
@@ -168,6 +169,48 @@ def forward_intermediates(state, inputs):
         capture_intermediates=True,
     )
 
+def safe_pearson_correlation(vec1, vec2, eps=1e-8):
+    vec1 = vec1.squeeze()
+    vec2 = vec2.squeeze()
+    vec1_mean = vec1.mean()
+    vec2_mean = vec2.mean()
+    num = vec1 - vec1_mean
+    num *= vec2 - vec2_mean
+    num = num.sum()
+    denom = jnp.sqrt(jnp.sum((vec1 - vec1_mean) ** 2) * jnp.sum((vec2 - vec2_mean) ** 2) + eps)
+    return num / denom
+
+@jax.jit
+def safe_compute_metrics(*, state, batch):
+    """Obtaining the metrics for a given batch safely."""
+    img, img_dist, mos = batch
+
+    def loss_fn(params):
+        ## Forward pass through the model
+        img_pred, updated_state = state.apply_fn(
+            {"params": params, **state.state},
+            img,
+            mutable=list(state.state.keys()),
+            train=False,
+        )
+        img_dist_pred, updated_state = state.apply_fn(
+            {"params": params, **state.state},
+            img_dist,
+            mutable=list(state.state.keys()),
+            train=False,
+        )
+
+        ## Calculate the distance safely
+        dist = jnp.sqrt(jnp.sum((img_pred - img_dist_pred) ** 2, axis=(1, 2, 3)) + 1e-8)
+
+        ## Calculate pearson correlation safely
+        return safe_pearson_correlation(dist, mos)
+
+    metrics_updates = state.metrics.single_from_model_output(loss=loss_fn(state.params))
+    metrics = state.metrics.merge(metrics_updates)
+    state = state.replace(metrics=metrics)
+    return state
+
 @partial(jax.jit, static_argnums=2)
 def train_step(state, batch, return_grads=False):
     """Train for a single step with running batch stats updates."""
@@ -190,11 +233,11 @@ def train_step(state, batch, return_grads=False):
             update_stats=True,
         )
 
-        ## Calculate the distance
-        dist = ((img_pred - img_dist_pred) ** 2).sum(axis=(1, 2, 3)) ** (1 / 2)
+        ## Calculate the distance safely
+        dist = jnp.sqrt(jnp.sum((img_pred - img_dist_pred) ** 2, axis=(1, 2, 3)) + 1e-8)
 
-        ## Calculate pearson correlation
-        return pearson_correlation(dist, mos), updated_state
+        ## Calculate pearson correlation safely
+        return safe_pearson_correlation(dist, mos), updated_state
 
     (loss, updated_state), grads = jax.value_and_grad(loss_fn, has_aux=True)(
         state.params
@@ -275,7 +318,7 @@ for epoch in range(config.EPOCHS):
 
     ## Evaluation
     for batch in get_epoch_iterator(val_ds, config.BATCH_SIZE, shuffle=False):
-        state = compute_metrics(state=state, batch=batch)
+        state = safe_compute_metrics(state=state, batch=batch)
 
     for name, value in state.metrics.compute().items():
         metrics_history[f"val_{name}"].append(value)
