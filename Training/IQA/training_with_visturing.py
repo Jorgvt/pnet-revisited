@@ -148,8 +148,8 @@ print(f"Total parameters: {param_count}, Trainable parameters: {trainable_param_
 # Weights & Biases Initialization
 # -----------------------------------------------------------------------------
 wandb.init(
-    project="PerceptNet_v15",
-    name="FinalModel_Freeze_CS_GoodInit_Visturing",
+    project="PerceptNet_v2",
+    name="Base",
     job_type="training",
     config=config,
     mode="online",
