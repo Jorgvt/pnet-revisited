@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--iterations", type=int, default=10, help="Number of training iterations")
     parser.add_argument("--weighted", action="store_true", help="Optimize weighted correlation instead of non-weighted")
     parser.add_argument("--learning_rate", "--lr", type=float, default=1e-4, help="Learning rate for optimization")
+    parser.add_argument("--loss_type", type=str, default="correlation", choices=["correlation", "mse", "mse_z"], help="Loss function to optimize")
     args = parser.parse_args()
 
     print("Starting JAX PerceptNet (initialized from scratch) optimization experiment on Prop. 1 (Spectral Sensitivity)...")
@@ -86,7 +87,14 @@ def main():
     # 3. Create the flat loss function
     def loss_from_diffs(diffs_val):
         corr = jax_pearson_correlation(diffs_val, a_interp_j)
-        loss = -corr
+        if args.loss_type == "mse":
+            loss = jnp.mean((diffs_val - a_interp_j) ** 2)
+        elif args.loss_type == "mse_z":
+            diffs_z = (diffs_val - jnp.mean(diffs_val)) / (jnp.std(diffs_val) + 1e-8)
+            gt_z = (a_interp_j - jnp.mean(a_interp_j)) / (jnp.std(a_interp_j) + 1e-8)
+            loss = jnp.mean((diffs_z - gt_z) ** 2)
+        else:
+            loss = -corr
         return loss, corr
 
     # 4. Build the memory-efficient grad function
@@ -104,7 +112,10 @@ def main():
         return loss_from_diffs(jnp.concatenate(diffs, axis=0))
 
     import pickle
-    save_path = os.path.join(os.path.dirname(__file__), "model_pnet_init_prop1.pkl")
+    if args.loss_type != "correlation":
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_init_prop1_{args.loss_type}.pkl")
+    else:
+        save_path = os.path.join(os.path.dirname(__file__), "model_pnet_init_prop1.pkl")
     best_corr = -1.0
 
     print("Initial evaluation...")

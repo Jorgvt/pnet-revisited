@@ -91,8 +91,8 @@ def collect_property_stimuli(prop_module, config, batch_size):
     slice_sizes = [len(s) for s in all_stimuli]
     return stimuli_flat, plain_flat, slice_sizes
 
-def make_loss_from_diffs(prop_module, config, slice_sizes, weighted):
-    """Constructs a JAX-traceable loss function that computes correlation from a flat differences array."""
+def make_loss_from_diffs(prop_module, config, slice_sizes, weighted, loss_type="correlation"):
+    """Constructs a JAX-traceable loss function that computes correlation or MSE from a flat differences array."""
     def loss_from_diffs(diffs_val):
         start = 0
         slices = []
@@ -107,16 +107,34 @@ def make_loss_from_diffs(prop_module, config, slice_sizes, weighted):
             call_count += 1
             return res
             
+        current_config = {**config}
+        if loss_type in ["mse", "mse_z"]:
+            current_config["return_gt"] = True
+
         res = prop_module.evaluate_gen(
             mock_calculate_diffs,
             xp=jnp,
             batch_size=None,
             verbose=False,
-            **config
+            **current_config
         )
         corr_key = "weighted" if weighted else "non-weighted"
         corr = res.correlations[corr_key]["global"]
-        return -corr, corr
+        
+        if loss_type == "mse":
+            preds = jnp.concatenate([jnp.ravel(res.results[k]) for k in res.results.keys()])
+            gts_flat = jnp.concatenate([jnp.ravel(res.gt[k]) for k in res.results.keys()])
+            loss = jnp.mean((preds - gts_flat) ** 2)
+        elif loss_type == "mse_z":
+            preds = jnp.concatenate([jnp.ravel(res.results[k]) for k in res.results.keys()])
+            gts_flat = jnp.concatenate([jnp.ravel(res.gt[k]) for k in res.results.keys()])
+            preds_z = (preds - jnp.mean(preds)) / (jnp.std(preds) + 1e-8)
+            gts_z = (gts_flat - jnp.mean(gts_flat)) / (jnp.std(gts_flat) + 1e-8)
+            loss = jnp.mean((preds_z - gts_z) ** 2)
+        else:
+            loss = -corr
+            
+        return loss, corr
     return loss_from_diffs
 
 def make_memory_efficient_grad_fn(model, state, jit_calculate_diffs, loss_from_diffs, stimuli_flat, plain_flat, batch_size):

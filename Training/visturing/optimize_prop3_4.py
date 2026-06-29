@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--iterations", type=int, default=10, help="Number of training iterations")
     parser.add_argument("--weighted", action="store_true", help="Optimize weighted correlation instead of non-weighted")
     parser.add_argument("--learning_rate", "--lr", type=float, default=1e-4, help="Learning rate for optimization")
+    parser.add_argument("--loss_type", type=str, default="correlation", choices=["correlation", "mse", "mse_z"], help="Loss function to optimize")
     args = parser.parse_args()
 
     print(f"Starting JAX PerceptNet (initialized from scratch) optimization experiment on Prop. 3 & 4 (CSF) using {'WEIGHTED' if args.weighted else 'NON-WEIGHTED'} correlation...")
@@ -68,7 +69,7 @@ def main():
 
     # 3. Create the flat loss function
     loss_from_diffs = make_loss_from_diffs(
-        prop3_4, default_prop3_4_config, slice_sizes, args.weighted
+        prop3_4, default_prop3_4_config, slice_sizes, args.weighted, loss_type=args.loss_type
     )
 
     # 4. Build the memory-efficient grad function
@@ -87,7 +88,10 @@ def main():
 
     import pickle
     suffix = "weighted" if args.weighted else "non_weighted"
-    save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_init_prop3_{suffix}.pkl")
+    if args.loss_type != "correlation":
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_init_prop3_{suffix}_{args.loss_type}.pkl")
+    else:
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_init_prop3_{suffix}.pkl")
     best_corr = -1.0
 
     print("Initial evaluation...")
