@@ -91,9 +91,10 @@ def main():
     parser.add_argument("--iterations", type=int, default=20, help="Number of training iterations")
     parser.add_argument("--weighted", action="store_true", help="Optimize weighted correlation instead of non-weighted")
     parser.add_argument("--learning_rate", "--lr", type=float, default=1e-4, help="Learning rate for optimization")
+    parser.add_argument("--loss_type", type=str, default="correlation", choices=["correlation", "mse", "mse_z"], help="Loss function to optimize")
     args = parser.parse_args()
 
-    print(f"Starting Global Concatenated Visturing Optimization using {'WEIGHTED' if args.weighted else 'NON-WEIGHTED'} correlation...")
+    print(f"Starting Global Concatenated Visturing Optimization using loss type '{args.loss_type}' and {'WEIGHTED' if args.weighted else 'NON-WEIGHTED'} correlation...")
 
     # 1. Initialize the model
     key = jax.random.PRNGKey(42)
@@ -202,7 +203,11 @@ def main():
         z_diffs = jnp.concatenate(z_diffs_list, axis=0)
         
         corr = jax_pearson_correlation(z_diffs, gts_global_jax)
-        return -corr, corr
+        if args.loss_type in ["mse", "mse_z"]:
+            loss = jnp.mean((z_diffs - gts_global_jax) ** 2)
+        else:
+            loss = -corr
+        return loss, corr
 
     jit_global_loss_grad = jax.jit(jax.value_and_grad(global_loss_fn, has_aux=True))
 
@@ -211,10 +216,18 @@ def main():
     for info in properties_info:
         name = info["name"]
         if name == "prop1":
-            individual_loss_fns[name] = lambda diffs: (-jax_pearson_correlation(diffs, jnp.asarray(prop1_gt)), jax_pearson_correlation(diffs, jnp.asarray(prop1_gt)))
+            if args.loss_type == "mse":
+                individual_loss_fns[name] = lambda diffs: (jnp.mean((diffs - jnp.asarray(prop1_gt)) ** 2), jax_pearson_correlation(diffs, jnp.asarray(prop1_gt)))
+            elif args.loss_type == "mse_z":
+                individual_loss_fns[name] = lambda diffs: (
+                    jnp.mean(((diffs - jnp.mean(diffs)) / (jnp.std(diffs) + 1e-8) - (jnp.asarray(prop1_gt) - jnp.mean(jnp.asarray(prop1_gt))) / (jnp.std(jnp.asarray(prop1_gt)) + 1e-8)) ** 2),
+                    jax_pearson_correlation(diffs, jnp.asarray(prop1_gt))
+                )
+            else:
+                individual_loss_fns[name] = lambda diffs: (-jax_pearson_correlation(diffs, jnp.asarray(prop1_gt)), jax_pearson_correlation(diffs, jnp.asarray(prop1_gt)))
         else:
             individual_loss_fns[name] = make_loss_from_diffs(
-                info["module"], info["config"], slice_sizes[name], args.weighted
+                info["module"], info["config"], slice_sizes[name], args.weighted, loss_type=args.loss_type
             )
 
     # 7. Define Evaluation Function
@@ -313,7 +326,10 @@ def main():
         return loss_val, corr_val, accumulated_grads
 
     suffix = "weighted" if args.weighted else "non_weighted"
-    save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_global_concat_{suffix}.pkl")
+    if args.loss_type != "correlation":
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_global_concat_{suffix}_{args.loss_type}.pkl")
+    else:
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_global_concat_{suffix}.pkl")
     best_loss = 999.0
 
     print("Initial evaluation...")

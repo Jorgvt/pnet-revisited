@@ -79,10 +79,18 @@ def jax_pearson_correlation(x, y):
     r_den = jnp.sqrt(jnp.sum(xm ** 2) * jnp.sum(ym ** 2) + 1e-8)
     return r_num / r_den
 
-def make_prop1_loss(a_interp_jax):
+def make_prop1_loss(a_interp_jax, loss_type="correlation"):
     def loss_from_diffs(diffs_val):
         corr = jax_pearson_correlation(diffs_val, a_interp_jax)
-        return -corr, corr
+        if loss_type == "mse":
+            loss = jnp.mean((diffs_val - a_interp_jax) ** 2)
+        elif loss_type == "mse_z":
+            diffs_z = (diffs_val - jnp.mean(diffs_val)) / (jnp.std(diffs_val) + 1e-8)
+            gt_z = (a_interp_jax - jnp.mean(a_interp_jax)) / (jnp.std(a_interp_jax) + 1e-8)
+            loss = jnp.mean((diffs_z - gt_z) ** 2)
+        else:
+            loss = -corr
+        return loss, corr
     return loss_from_diffs
 
 def make_memory_efficient_grad_fn(model, state, jit_calculate_diffs, loss_from_diffs, batch_size):
@@ -132,9 +140,10 @@ def main():
     parser.add_argument("--iterations", type=int, default=20, help="Number of training iterations")
     parser.add_argument("--weighted", action="store_true", help="Optimize weighted correlation instead of non-weighted")
     parser.add_argument("--learning_rate", "--lr", type=float, default=1e-4, help="Learning rate for optimization")
+    parser.add_argument("--loss_type", type=str, default="correlation", choices=["correlation", "mse", "mse_z"], help="Loss function to optimize")
     args = parser.parse_args()
 
-    print(f"Starting Global Visturing Optimization using {'WEIGHTED' if args.weighted else 'NON-WEIGHTED'} correlation...")
+    print(f"Starting Global Visturing Optimization using loss type '{args.loss_type}' and {'WEIGHTED' if args.weighted else 'NON-WEIGHTED'} correlation...")
 
     # 1. Initialize the model
     key = jax.random.PRNGKey(42)
@@ -211,10 +220,10 @@ def main():
             
         # Create loss function
         if name == "prop1":
-            loss_fns[name] = make_prop1_loss(a_interp_jax)
+            loss_fns[name] = make_prop1_loss(a_interp_jax, loss_type=args.loss_type)
         else:
             loss_fns[name] = make_loss_from_diffs(
-                info["module"], info["config"], slice_sizes, args.weighted
+                info["module"], info["config"], slice_sizes, args.weighted, loss_type=args.loss_type
             )
             
         # Create gradient function
@@ -254,7 +263,10 @@ def main():
         return total_loss, corrs_val
 
     suffix = "weighted" if args.weighted else "non_weighted"
-    save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_global_{suffix}.pkl")
+    if args.loss_type != "correlation":
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_global_{suffix}_{args.loss_type}.pkl")
+    else:
+        save_path = os.path.join(os.path.dirname(__file__), f"model_pnet_global_{suffix}.pkl")
     best_loss = 999.0
 
     print("Initial evaluation...")
