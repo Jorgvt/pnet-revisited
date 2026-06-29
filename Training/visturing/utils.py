@@ -122,12 +122,12 @@ def make_loss_from_diffs(prop_module, config, slice_sizes, weighted, loss_type="
         corr = res.correlations[corr_key]["global"]
         
         if loss_type == "mse":
-            preds = jnp.ravel(jnp.stack([res.results[k] for k in res.results.keys()]))
-            gts_flat = jnp.ravel(jnp.stack([res.gt[k] for k in res.results.keys()]))
+            preds = jnp.concatenate([jnp.ravel(res.results[k]) for k in res.results.keys()])
+            gts_flat = jnp.concatenate([jnp.ravel(res.gt[k]) for k in res.results.keys()])
             loss = jnp.mean((preds - gts_flat) ** 2)
         elif loss_type == "mse_z":
-            preds = jnp.ravel(jnp.stack([res.results[k] for k in res.results.keys()]))
-            gts_flat = jnp.ravel(jnp.stack([res.gt[k] for k in res.results.keys()]))
+            preds = jnp.concatenate([jnp.ravel(res.results[k]) for k in res.results.keys()])
+            gts_flat = jnp.concatenate([jnp.ravel(res.gt[k]) for k in res.results.keys()])
             preds_z = (preds - jnp.mean(preds)) / (jnp.std(preds) + 1e-8)
             gts_z = (gts_flat - jnp.mean(gts_flat)) / (jnp.std(gts_flat) + 1e-8)
             loss = jnp.mean((preds_z - gts_z) ** 2)
